@@ -228,36 +228,33 @@ fn extract(text: &str, path: &Path) -> Note {
 /// digits compare by value, so "Note 2" comes before "Note 10".
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
-    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
+    // Sorting a large list calls this many times, so it allocates nothing:
+    // runs of digits are compared as slices of the input.
+    let (ab, bb) = (a.as_bytes(), b.as_bytes());
+    let (mut i, mut j) = (0, 0);
     loop {
-        match (a.peek().copied(), b.peek().copied()) {
+        match (a[i..].chars().next(), b[j..].chars().next()) {
             (None, None) => return Ordering::Equal,
             (None, Some(_)) => return Ordering::Less,
             (Some(_), None) => return Ordering::Greater,
             (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let mut na = String::new();
-                while let Some(&c) = a.peek().filter(|c| c.is_ascii_digit()) {
-                    na.push(c);
-                    a.next();
-                }
-                let mut nb = String::new();
-                while let Some(&c) = b.peek().filter(|c| c.is_ascii_digit()) {
-                    nb.push(c);
-                    b.next();
-                }
-                let (ta, tb) = (na.trim_start_matches('0'), nb.trim_start_matches('0'));
+                let ia = i + ab[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+                let jb = j + bb[j..].iter().take_while(|c| c.is_ascii_digit()).count();
+                let (ta, tb) = (a[i..ia].trim_start_matches('0'), b[j..jb].trim_start_matches('0'));
                 let by_value = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
                 if by_value != Ordering::Equal {
                     return by_value;
                 }
+                i = ia;
+                j = jb;
             }
             (Some(x), Some(y)) => {
                 let (lx, ly) = (x.to_lowercase().next().unwrap_or(x), y.to_lowercase().next().unwrap_or(y));
                 if lx != ly {
                     return lx.cmp(&ly);
                 }
-                a.next();
-                b.next();
+                i += x.len_utf8();
+                j += y.len_utf8();
             }
         }
     }

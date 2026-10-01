@@ -148,6 +148,9 @@ fn html_block_end(line: &[u8]) -> Option<&'static str> {
     None
 }
 
+/// Superscripts and subscripts are left to `text_run`: the parser's own
+/// run from any `^` to the next, across words, so `[^1] … x^2^` became one
+/// superscript from the footnote's caret.
 fn options(first_section: bool) -> Options {
     let mut o = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
@@ -155,8 +158,6 @@ fn options(first_section: bool) -> Options {
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_MATH
         | Options::ENABLE_GFM
-        | Options::ENABLE_SUPERSCRIPT
-        | Options::ENABLE_SUBSCRIPT
         | Options::ENABLE_WIKILINKS;
     if first_section {
         o |= Options::ENABLE_YAML_STYLE_METADATA_BLOCKS;
@@ -442,13 +443,22 @@ pub fn parse_section(text: &str, first_section: bool) -> Vec<Span> {
                             b.push(LIST_MARKER, start..i, line, list_depth, ordered, false);
                         }
                     }
-                    Tag::Emphasis | Tag::Strong | Tag::Strikethrough | Tag::Superscript | Tag::Subscript => {
+                    Tag::Emphasis | Tag::Strong | Tag::Strikethrough => {
                         let kind = match open.tag {
                             Tag::Emphasis => EMPHASIS,
                             Tag::Strong => STRONG,
-                            Tag::Strikethrough => STRIKE,
-                            Tag::Superscript => SUPERSCRIPT,
-                            _ => SUBSCRIPT,
+                            _ => STRIKE,
+                        };
+                        // A single tilde is a subscript, not a strike; with
+                        // a space inside it is neither, and stays as typed.
+                        let single = kind == STRIKE && bytes.get(r.start + 1) != Some(&b'~');
+                        let kind = if single {
+                            if bytes[r.start + 1..r.end.saturating_sub(1)].iter().any(|b| b.is_ascii_whitespace()) {
+                                continue;
+                            }
+                            SUBSCRIPT
+                        } else {
+                            kind
                         };
                         b.inline(kind, r.clone(), r.clone());
                         if let Some(inner) = open.inner {

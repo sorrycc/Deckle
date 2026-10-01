@@ -112,6 +112,21 @@ fn sample_spans() {
     }
 }
 
+#[test]
+fn footnote_caret_is_not_a_superscript() {
+    // The definition sits in another section, so the parser sees the
+    // reference as text, and its caret must not open a superscript that
+    // runs to the next one.
+    let text = format!("# A\n\nFootnotes[^1] and H~2~O and x^2^ and ~a b~ end.\n\n{}\n[^1]: The note.\n", "## B\n\nfiller\n\n".repeat(3));
+    let mut doc = Doc::new(text.clone(), "markdown");
+    let spans = all(&mut doc);
+    let of = |kind: u8| spans.iter().filter(|s| s.kind == kind).map(|s| text_of(&text, s)).collect::<Vec<_>>();
+    assert_eq!(of(FOOTNOTE_REF), ["[^1]"]);
+    assert_eq!(of(SUBSCRIPT), ["~2~"]);
+    assert_eq!(of(SUPERSCRIPT), ["^2^"]);
+    assert!(of(STRIKE).is_empty(), "{:?}", of(STRIKE));
+}
+
 /// A deterministic generator, so a failure can be replayed.
 struct Rng(u64);
 impl Rng {
