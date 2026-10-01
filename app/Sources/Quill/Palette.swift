@@ -192,7 +192,7 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         case .headings:
             show(rows: headingRows(query), note: nil)
         case .search:
-            guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return show(rows: [], note: "Type to search") }
+            guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return show(rows: [], note: "Type to search every note") }
             controller.workspace.search(query) { [weak self] results in
                 guard let self, self.mode == .search, self.field.stringValue == query else { return }
                 let rows = self.searchRows(results)
@@ -207,7 +207,7 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
     private func show(rows: [Row], note: String?) {
         self.rows = rows
         table.reloadData()
-        footer.stringValue = note ?? (rows.isEmpty ? "" : "↩ Open   ⌘↩ Open in New Tab   esc Close")
+        footer.stringValue = note ?? (rows.isEmpty ? "" : hints)
         let visible = min(rows.count, 10)
         let list = rows.isEmpty && note == nil ? 0 : CGFloat(max(visible, rows.isEmpty ? 1 : visible)) * Self.rowHeight + 10
         heightConstraint.constant = Self.fieldHeight + list + (list > 0 ? 24 : 0)
@@ -218,6 +218,15 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         }
         panel.layoutIfNeeded()
         if panel.isVisible { position() }
+    }
+
+    /// What the keys do in this mode, for the footer.
+    private var hints: String {
+        switch mode {
+        case .files, .search: "↩ Open   ⌘↩ Open in New Tab   esc Close"
+        case .commands: "↩ Run   esc Close"
+        case .headings: "↩ Go to Heading   esc Close"
+        }
     }
 
     /// `text` with the characters at `indices` bold.
@@ -297,8 +306,9 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
                 if let validator = target as? NSMenuItemValidation, !validator.validateMenuItem(item) { continue }
                 let title = "\(path) › \(item.title)"
                 guard let score = Self.score(item.title, query) ?? Self.score(title, query).map({ $0 - 5 }) else { continue }
+                // Few menu items have an icon; none keeps the titles aligned.
                 found.append((score, Row(
-                    icon: item.image,
+                    icon: nil,
                     title: NSAttributedString(string: item.title, attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)]),
                     detail: NSAttributedString(string: path, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]),
                     trailing: Self.shortcut(item),

@@ -61,6 +61,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     private let outline = NSOutlineView()
     private let scrollView = NSScrollView()
     private let switcher = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let emptyView = EmptyStateView(title: "Empty Workspace", detail: "Press ⌘N to write the first note, or drop files here.")
     /// Loaded folders by path, to find the node a change belongs to.
     private var folders: [String: FileNode] = [:]
     private var isSelectingProgrammatically = false
@@ -113,12 +114,16 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         switcher.menu?.delegate = self
         (switcher.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
 
+        emptyView.isHidden = true
         let container = NSView()
-        for view in [scrollView, switcher] as [NSView] {
+        for view in [scrollView, switcher, emptyView] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
         NSLayoutConstraint.activate([
+            emptyView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            emptyView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            emptyView.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -32),
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -134,6 +139,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     override func viewDidLoad() {
         super.viewDidLoad()
         outline.reloadData()
+        updateEmptyState()
         if !starred.isEmpty { outline.expandItem(starredGroup) }
         let expanded = Settings.state(for: workspace.url)["expanded"] as? [String] ?? []
         // Parents before children, so each path finds its node loaded.
@@ -143,6 +149,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 
     // MARK: State
+
+    private func updateEmptyState() {
+        emptyView.isHidden = !(root.children?.isEmpty ?? true) || !starred.isEmpty
+    }
 
     /// The folders expanded in the tree, to open them again next time.
     var expandedPaths: [String] {
@@ -215,6 +225,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         outline.reloadItem(node === root ? nil : node, reloadChildren: true)
         if let selected { select(selected, expanding: false) }
         isSelectingProgrammatically = false
+        updateEmptyState()
         let kept = starred.filter { FileManager.default.fileExists(atPath: $0.path) }
         if kept.count != starred.count {
             starred = kept

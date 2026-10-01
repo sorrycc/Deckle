@@ -303,7 +303,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         guard let editor = selectedTab.editor else { return pane.statusBar.clear() }
         let position = editor.position
         pane.statusBar.show(line: position.line, column: position.column)
-        pane.statusBar.show(language: editor.styler.language)
+        pane.statusBar.show(language: editor.isMarkdown ? nil : editor.styler.language)
         scheduleWordCount()
     }
 

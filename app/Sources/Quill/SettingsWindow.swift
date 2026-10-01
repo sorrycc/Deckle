@@ -165,21 +165,55 @@ final class ThemeSwatch: NSControl {
 }
 
 final class EditorPane: NSViewController {
+    private let widthValue = NSTextField(labelWithString: "")
+    private let heightValue = NSTextField(labelWithString: "")
+
     override func loadView() {
         let hide = NSButton(checkboxWithTitle: "Show Markdown syntax only around the selection", target: self, action: #selector(toggleHide(_:)))
         hide.state = Settings.hidesMarkers ? .on : .off
         let spelling = NSButton(checkboxWithTitle: "Check spelling while typing", target: self, action: #selector(toggleSpelling(_:)))
         spelling.state = Settings.checksSpelling ? .on : .off
         let width = NSSlider(value: Settings.lineWidth, minValue: 480, maxValue: 1400, target: self, action: #selector(widthChanged(_:)))
-        width.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        width.isContinuous = true
         let height = NSSlider(value: Settings.lineHeight, minValue: 1.2, maxValue: 2.2, target: self, action: #selector(heightChanged(_:)))
-        height.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        view = form([("Syntax", hide), ("", spelling), ("Line width", width), ("Line height", height)], width: 720)
+        height.isContinuous = true
+        for label in [widthValue, heightValue] {
+            label.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            label.textColor = .secondaryLabelColor
+            label.alignment = .right
+            label.widthAnchor.constraint(equalToConstant: 56).isActive = true
+        }
+        view = form([
+            ("Syntax", hide), ("", spelling),
+            ("Line width", sliderRow(width, widthValue)), ("Line height", sliderRow(height, heightValue)),
+        ], width: 720)
         preferredContentSize = view.fittingSize
+        refresh()
+    }
+
+    private func sliderRow(_ slider: NSSlider, _ value: NSTextField) -> NSView {
+        slider.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        let row = NSStackView(views: [slider, value])
+        row.spacing = 10
+        row.alignment = .centerY
+        return row
+    }
+
+    private func refresh() {
+        widthValue.stringValue = "\(Int(Settings.lineWidth)) pt"
+        heightValue.stringValue = String(format: "%.2f×", Settings.lineHeight)
     }
 
     @objc private func toggleHide(_ sender: NSButton) { Settings.hidesMarkers = sender.state == .on }
     @objc private func toggleSpelling(_ sender: NSButton) { Settings.checksSpelling = sender.state == .on }
-    @objc private func widthChanged(_ sender: NSSlider) { Settings.lineWidth = sender.doubleValue.rounded() }
-    @objc private func heightChanged(_ sender: NSSlider) { Settings.lineHeight = (sender.doubleValue * 20).rounded() / 20 }
+
+    @objc private func widthChanged(_ sender: NSSlider) {
+        Settings.lineWidth = (sender.doubleValue / 10).rounded() * 10
+        refresh()
+    }
+
+    @objc private func heightChanged(_ sender: NSSlider) {
+        Settings.lineHeight = (sender.doubleValue * 20).rounded() / 20
+        refresh()
+    }
 }

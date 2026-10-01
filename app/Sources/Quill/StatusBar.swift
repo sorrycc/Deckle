@@ -48,7 +48,10 @@ final class StatusBar: NSView {
         wordsLabel.stringValue = words == 1 ? "1 word" : "\(words.formatted()) words"
     }
 
-    func show(language: String) {
+    /// Nil for a note, whose format goes without saying.
+    func show(language: String?) {
+        languageLabel.isHidden = language == nil
+        guard let language else { return }
         languageLabel.stringValue = language.isEmpty ? "Plain Text" : language.prefix(1).uppercased() + language.dropFirst()
     }
 
@@ -61,7 +64,7 @@ final class StatusBar: NSView {
     func clear() {
         positionLabel.stringValue = ""
         wordsLabel.stringValue = ""
-        languageLabel.stringValue = ""
+        languageLabel.isHidden = true
         backlinksButton.isHidden = true
     }
 }

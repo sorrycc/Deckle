@@ -224,6 +224,45 @@ fn extract(text: &str, path: &Path) -> Note {
     note
 }
 
+/// Orders titles as a person reads them: case doesn't matter, and runs of
+/// digits compare by value, so "Note 2" comes before "Note 10".
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
+    loop {
+        match (a.peek().copied(), b.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                let mut na = String::new();
+                while let Some(&c) = a.peek().filter(|c| c.is_ascii_digit()) {
+                    na.push(c);
+                    a.next();
+                }
+                let mut nb = String::new();
+                while let Some(&c) = b.peek().filter(|c| c.is_ascii_digit()) {
+                    nb.push(c);
+                    b.next();
+                }
+                let (ta, tb) = (na.trim_start_matches('0'), nb.trim_start_matches('0'));
+                let by_value = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
+                if by_value != Ordering::Equal {
+                    return by_value;
+                }
+            }
+            (Some(x), Some(y)) => {
+                let (lx, ly) = (x.to_lowercase().next().unwrap_or(x), y.to_lowercase().next().unwrap_or(y));
+                if lx != ly {
+                    return lx.cmp(&ly);
+                }
+                a.next();
+                b.next();
+            }
+        }
+    }
+}
+
 fn atx_heading(line: &str) -> Option<&str> {
     let hashes = line.bytes().take_while(|&b| b == b'#').count();
     if (1..=6).contains(&hashes) && line.as_bytes().get(hashes) == Some(&b' ') {
@@ -584,7 +623,7 @@ impl Workspace {
         let index = self.shared.index.read().unwrap();
         let mut notes: Vec<(&PathBuf, &Note)> = index.notes.iter().filter(|(p, _)| p.starts_with(&dir)).collect();
         if by_title {
-            notes.sort_by(|a, b| a.1.title.to_lowercase().cmp(&b.1.title.to_lowercase()).then(a.0.cmp(b.0)));
+            notes.sort_by(|a, b| natural_cmp(&a.1.title, &b.1.title).then(a.0.cmp(b.0)));
         } else {
             notes.sort_by(|a, b| b.1.modified.cmp(&a.1.modified).then(a.0.cmp(b.0)));
         }

@@ -7,6 +7,10 @@ final class OutlineRail: NSView {
     var onSelect: ((Heading) -> Void)?
     private var headings: [Heading] = []
     private var current = -1
+    /// The headings with a tick, as indices into `headings`: all of them
+    /// when they fit, else the top levels, else every so many.
+    private var ticks: [Int] = []
+    private var tickSpacing: CGFloat = 8
     /// The list as a card, made when the rail first opens: a glass view is
     /// dear, and most notes are read without one.
     private var card: NSGlassEffectView?
@@ -29,7 +33,8 @@ final class OutlineRail: NSView {
     }
 
     static let width: CGFloat = 28
-    private static let tickSpacing: CGFloat = 8
+    private static let maxTickSpacing: CGFloat = 8
+    private static let minTickSpacing: CGFloat = 4
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -72,14 +77,44 @@ final class OutlineRail: NSView {
     }
 
     private var tickArea: CGRect {
-        let height = CGFloat(headings.count) * Self.tickSpacing
+        let height = CGFloat(ticks.count) * tickSpacing
         return CGRect(x: bounds.width - Self.width, y: (bounds.height - height) / 2, width: Self.width, height: height)
+    }
+
+    /// Picks the headings that get a tick, so a note of hundreds of sections
+    /// shows its shape instead of a wall of ticks past the edges.
+    private func fitTicks() {
+        let room = max(Self.minTickSpacing, bounds.height - 56)
+        let capacity = max(1, Int(room / Self.minTickSpacing))
+        // The deepest level whose headings all fit.
+        var picks = Array(headings.indices)
+        var level = 6
+        while picks.count > capacity, level > 1 {
+            level -= 1
+            picks = headings.indices.filter { headings[$0].level <= level }
+        }
+        // Too many still, or so few that the note's shape is lost: every so
+        // many headings of the level that didn't fit.
+        if picks.count > capacity || (level < 6 && picks.count < capacity / 3) {
+            let dense = level < 6 ? headings.indices.filter { headings[$0].level <= level + 1 } : picks
+            let step = Int((CGFloat(dense.count) / CGFloat(capacity)).rounded(.up))
+            picks = stride(from: 0, to: dense.count, by: max(1, step)).map { dense[$0] }
+        }
+        ticks = picks
+        tickSpacing = picks.isEmpty ? Self.maxTickSpacing : min(Self.maxTickSpacing, room / CGFloat(picks.count))
+    }
+
+    override func layout() {
+        super.layout()
+        fitTicks()
+        needsDisplay = true
     }
 
     func show(_ headings: [Heading], current: Int) {
         let changed = headings.map(\.title) != self.headings.map(\.title) || headings.map(\.level) != self.headings.map(\.level)
         self.headings = headings
         self.current = current
+        if changed || ticks.count > headings.count { fitTicks() }
         isHidden = headings.count < 2
         // The list is built when it is looked at, not on every edit.
         listIsStale = listIsStale || changed
@@ -126,10 +161,14 @@ final class OutlineRail: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard !isOpen else { return }
         let area = tickArea
-        for (index, heading) in headings.enumerated() {
+        // The tick of the current heading, or of the last one above it when
+        // the current heading has no tick of its own.
+        let lit = ticks.lastIndex { $0 <= current } ?? -1
+        for (slot, index) in ticks.enumerated() {
+            let heading = headings[index]
             let length: CGFloat = [14, 11, 8, 6, 5, 5][max(1, min(heading.level, 6)) - 1]
-            let y = area.minY + CGFloat(index) * Self.tickSpacing + Self.tickSpacing / 2
-            (index == current ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor).setFill()
+            let y = area.minY + CGFloat(slot) * tickSpacing + tickSpacing / 2
+            (slot == lit ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor).setFill()
             NSBezierPath(roundedRect: CGRect(x: area.maxX - 8 - length, y: y - 1, width: length, height: 2), xRadius: 1, yRadius: 1).fill()
         }
     }
@@ -153,7 +192,7 @@ final class OutlineRail: NSView {
     override func mouseDown(with event: NSEvent) {
         // A click on a tick jumps to its heading.
         let point = convert(event.locationInWindow, from: nil)
-        let index = Int((point.y - tickArea.minY) / Self.tickSpacing)
-        if !isOpen, headings.indices.contains(index) { onSelect?(headings[index]) }
+        let slot = Int((point.y - tickArea.minY) / tickSpacing)
+        if !isOpen, ticks.indices.contains(slot) { onSelect?(headings[ticks[slot]]) }
     }
 }

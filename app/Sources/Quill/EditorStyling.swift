@@ -254,10 +254,18 @@ final class Styler {
             case QuillListMarker:
                 let task = spans.first { $0.kindValue == QuillTaskMarker && $0.start >= span.end }
                 if span.flags == 0 && isMarkdown && !isRevealed(span.element) {
-                    // A bullet is drawn over the marker, which keeps its room
-                    // so the line doesn't shift when the syntax shows.
-                    text.addAttribute(.foregroundColor, value: NSColor.clear, range: r)
-                    if task == nil { decoration.bullets.append((r.location, Int(span.level))) }
+                    if task == nil {
+                        // A bullet is drawn over the marker, which keeps its
+                        // room so the line doesn't shift when the syntax shows.
+                        text.addAttribute(.foregroundColor, value: NSColor.clear, range: r)
+                        decoration.bullets.append((r.location, Int(span.level)))
+                    } else {
+                        // A task's box stands in for its marker: the marker
+                        // and the space after it go, so the box sits where a
+                        // bullet would and the text follows it as closely.
+                        let gap = NSRange(location: r.location, length: min(content.upperBound, r.upperBound + 1) - r.location)
+                        text.addAttributes([.font: hiddenFont, .foregroundColor: NSColor.clear], range: gap)
+                    }
                 } else {
                     text.addAttribute(.foregroundColor, value: theme.accent, range: r)
                 }

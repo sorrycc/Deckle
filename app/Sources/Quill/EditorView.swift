@@ -216,8 +216,10 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         // Widgets are sized to the column: a new width lays them out again.
         // That includes the first layout: TextKit asks for paragraphs before
         // the view has a frame, and those hold widgets sized for no width.
+        // Not during a live resize, though: tables and diagrams are laid out
+        // once, for the width the window settles on.
         let column = columnWidth.rounded()
-        if bounds.width > 0, column != widgetWidth {
+        if bounds.width > 0, column != widgetWidth, !inLiveResize {
             widgetWidth = column
             widgetStore?.invalidate()
             restyleWidgetLines()
@@ -242,6 +244,14 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 
     /// The column width the widgets were last laid out for.
     private var widgetWidth: CGFloat = 0
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        // Lines laid out during the resize hold widgets of passing widths,
+        // whatever width the window ends at.
+        widgetWidth = 0
+        needsLayout = true
+    }
 
     /// The width of the column of text.
     var columnWidth: CGFloat {
@@ -322,7 +332,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         guard let paragraph = textElement as? StyledParagraph, !paragraph.decoration.isPlain else {
             return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
         }
-        if paragraph.decoration.widget != nil, bounds.width > 0, paragraph.decoration.widgetWidth != columnWidth,
+        if paragraph.decoration.widget != nil, bounds.width > 0, paragraph.decoration.widgetWidth != columnWidth, !inLiveResize,
             let range = textElement.elementRange
         {
             // Styled for another width, before a layout: laid out again once

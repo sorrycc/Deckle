@@ -18,7 +18,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
     private let titleLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
     private let sortButton = NSButton()
-    private let emptyLabel = NSTextField(labelWithString: "No Notes")
+    private let emptyView = EmptyStateView(title: "No Notes", detail: "Press ⌘N to write one.")
     private var count = 0
     /// Rows read from the core so far, by page.
     private var pages: [Int: [NoteSummary]] = [:]
@@ -71,12 +71,9 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         let header = NSStackView(views: [titleLabel, countLabel, NSView(), sortButton])
         header.spacing = 6
         header.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 12)
-        emptyLabel.font = .systemFont(ofSize: 13)
-        emptyLabel.textColor = .tertiaryLabelColor
-        emptyLabel.alignment = .center
-        emptyLabel.isHidden = true
+        emptyView.isHidden = true
         let container = NSView()
-        for view in [header, scrollView, emptyLabel] as [NSView] {
+        for view in [header, scrollView, emptyView] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -89,8 +86,9 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            emptyLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            emptyView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            emptyView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            emptyView.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -32),
         ])
         view = container
         updateSortButton()
@@ -135,7 +133,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         pages.removeAll()
         titleLabel.stringValue = folder.path == workspace.url.path ? workspace.name : folder.lastPathComponent
         countLabel.stringValue = count.formatted()
-        emptyLabel.isHidden = count > 0
+        emptyView.isHidden = count > 0
         isSelectingProgrammatically = true
         table.reloadData()
         restoreSelection()
@@ -234,6 +232,35 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
     }
 }
 
+/// What a column says when it has nothing to list: a title and a hint.
+final class EmptyStateView: NSView {
+    init(title: String, detail: String) {
+        super.init(frame: .zero)
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .secondaryLabelColor
+        titleLabel.alignment = .center
+        let detailLabel = NSTextField(wrappingLabelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 12)
+        detailLabel.textColor = .tertiaryLabelColor
+        detailLabel.alignment = .center
+        let stack = NSStackView(views: [titleLabel, detailLabel])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 /// A row between two hairlines, which the selection covers.
 final class NoteRowView: NSTableRowView {
     override func drawSeparator(in dirtyRect: NSRect) {}
@@ -269,7 +296,9 @@ final class NoteCell: NSTableCellView {
         excerptLabel.font = .systemFont(ofSize: 12)
         excerptLabel.textColor = .secondaryLabelColor
         excerptLabel.maximumNumberOfLines = 2
-        excerptLabel.lineBreakMode = .byTruncatingTail
+        // Wrapping, with the second line cut short: a truncating mode would
+        // keep the excerpt to one line.
+        excerptLabel.lineBreakMode = .byWordWrapping
         excerptLabel.cell?.truncatesLastVisibleLine = true
         dateLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         dateLabel.textColor = .tertiaryLabelColor
