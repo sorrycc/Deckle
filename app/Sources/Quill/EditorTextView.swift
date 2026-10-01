@@ -218,17 +218,21 @@ final class EditorTextView: NSTextView {
             return
         }
         // A click on a task box ticks it.
-        if event.clickCount == 1, let marker = editor.taskMarker(at: index) ?? editor.taskMarker(at: max(0, index - 1)) {
-            let box = marker.range
-            let rect = firstRect(forCharacterRange: box, actualRange: nil)
-            let inWindow = window?.convertFromScreen(rect) ?? .zero
-            if convert(inWindow, from: nil).insetBy(dx: -3, dy: -2).contains(point) {
-                let selection = selectedRange()
-                editor.replace(box, with: marker.flags != 0 ? "[ ]" : "[x]", select: selection)
-                return
-            }
+        if event.clickCount == 1, let marker = taskBox(at: point) {
+            let selection = selectedRange()
+            editor.replace(marker.range, with: marker.flags != 0 ? "[ ]" : "[x]", select: selection)
+            return
         }
         super.mouseDown(with: event)
+    }
+
+    /// The task box drawn at `point`, if there is one.
+    func taskBox(at point: NSPoint) -> QuillSpan? {
+        guard let editor, let window else { return nil }
+        let index = characterIndexForInsertion(at: point)
+        guard let marker = editor.taskMarker(at: index) ?? editor.taskMarker(at: max(0, index - 1)) else { return nil }
+        let rect = firstRect(forCharacterRange: marker.range, actualRange: nil)
+        return convert(window.convertFromScreen(rect), from: nil).insetBy(dx: -3, dy: -2).contains(point) ? marker : nil
     }
 
     // MARK: Formatting

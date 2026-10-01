@@ -9,6 +9,8 @@ final class SettingsWindowController: NSWindowController {
             (AppearancePane(), "Appearance", "paintpalette"),
             (EditorPane(), "Editor", "text.cursor"),
         ] as [(NSViewController, String, String)] {
+            // The window takes the title of the pane it shows.
+            pane.title = title
             let item = NSTabViewItem(viewController: pane)
             item.label = title
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
@@ -23,6 +25,11 @@ final class SettingsWindowController: NSWindowController {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Shows a tab by position, for snapshots.
+    func selectTab(_ index: Int) {
+        (window?.contentViewController as? NSTabViewController)?.selectedTabViewItemIndex = index
+    }
 }
 
 /// A form of labeled rows, as System Settings lays them out.

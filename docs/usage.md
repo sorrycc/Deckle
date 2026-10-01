@@ -75,7 +75,7 @@ For trying the app from a script:
 | `-type <text>` | Types this text at the selection; `\n` is a line break |
 | `-hover <index>` | Moves the pointer over this character; `-command YES` holds ⌘ |
 | `-palette files\|search\|commands\|headings\|backlinks` | Opens a panel; `-query <text>` fills it in |
-| `-settings YES` | Opens the Settings window, which a snapshot pictures as a panel |
+| `-settings YES` | Opens the Settings window, which a snapshot pictures as a panel; `-settingsTab 1` picks a tab |
 | `-snapshot <png>` | Writes a picture of the window, and of any panel as `<name>-panel.png`, then quits |
 | `-timing YES` | Prints how long launching and indexing took |
 | `-benchmark <n>` | Types n characters into the open file, prints the time each took, and quits |

@@ -441,7 +441,8 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// The text view's pointer moved to `point`, or the modifier keys changed.
     func pointerMoved(to point: NSPoint, flags: NSEvent.ModifierFlags) {
         let index = textView.characterIndexForInsertion(at: point)
-        let hand = flags.contains(.command) && isMarkdown && textView.bounds.contains(point) && link(at: index) != nil
+        let hand = isMarkdown && textView.bounds.contains(point)
+            && ((flags.contains(.command) && link(at: index) != nil) || textView.taskBox(at: point) != nil)
         if hand != wantsPointingHand {
             wantsPointingHand = hand
             (hand ? NSCursor.pointingHand : NSCursor.iBeam).set()

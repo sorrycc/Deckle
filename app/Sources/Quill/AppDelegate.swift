@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openFolder(_ sender: Any?) { chooseWorkspace() }
 
-    private var settingsController: SettingsWindowController?
+    private(set) var settingsController: SettingsWindowController?
 
     @objc func showSettings(_ sender: Any?) {
         let controller = settingsController ?? SettingsWindowController()
@@ -208,7 +208,12 @@ enum Debug {
                     editor.pointerMoved(to: NSPoint(x: point.midX, y: point.midY), flags: defaults.bool(forKey: "command") ? .command : [])
                 }
             }
-            if defaults.bool(forKey: "settings") { (NSApp.delegate as? AppDelegate)?.showSettings(nil) }
+            if defaults.bool(forKey: "settings") {
+                (NSApp.delegate as? AppDelegate)?.showSettings(nil)
+                if let tab = defaults.object(forKey: "settingsTab") as? String, let index = Int(tab) {
+                    (NSApp.delegate as? AppDelegate)?.settingsController?.selectTab(index)
+                }
+            }
             if let palette = defaults.string(forKey: "palette") {
                 let query = defaults.string(forKey: "query") ?? ""
                 switch palette {
