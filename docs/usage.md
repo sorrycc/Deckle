@@ -4,7 +4,9 @@
 
 A workspace is a folder. Open one with File > Open Folder… (⌘O), by dropping a folder on the app, or from the switcher at the bottom of the sidebar. Quill reopens the last workspace and its tabs at launch. Hidden files and `node_modules` folders are left out.
 
-Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
+Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). Titles sort as a person reads them, so "Note 2" comes before "Note 10". Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
+
+Image files open in a tab of their own, fitted to the pane, and pinch or ⌘-scroll zooms them. Other text files open with their code highlighted.
 
 Right-click in the tree to create notes and folders, rename, star, reveal in Finder or move to the Trash. Drag files onto a folder to move them; files dragged in from Finder are copied.
 
@@ -46,7 +48,9 @@ Markdown's syntax shows only around the selection: `-` becomes a bullet, `[ ]` a
 | ⌘[ and ⌘] | Back and forward in the tab |
 | ⌘1 to ⌘9, ⌃Tab | Switch tabs |
 
-The ticks at the right edge of a note are its headings. Hover over them for an outline, then click a heading to jump to it.
+The ticks at the right edge of a note are its headings. Hover over them for an outline, then click a heading to jump to it. A note with more headings than fit shows its top levels.
+
+The line under the editor shows how many notes link to this one (click it for the list), where the insertion point is, and how many words the note has. For a file that isn't a note it names the language, or an image's size.
 
 ## Saving
 
