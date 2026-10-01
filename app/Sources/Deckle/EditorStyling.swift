@@ -1,5 +1,5 @@
 import AppKit
-import CQuillCore
+import CDeckleCore
 
 /// What a line's fragment draws besides its text.
 struct LineDecoration {
@@ -114,7 +114,7 @@ final class Styler {
     /// of the item through its box. The marker's element is the whole line,
     /// but a task reveals only around its prefix, so editing the text never
     /// moves it; the start of the text, one past the box, is outside.
-    static func taskPrefix(of marker: QuillSpan, task: QuillSpan) -> NSRange {
+    static func taskPrefix(of marker: DeckleSpan, task: DeckleSpan) -> NSRange {
         let start = Int(marker.elem_start)
         return NSRange(location: start, length: min(Int(task.end), Int(task.elem_end)) - start)
     }
@@ -155,7 +155,7 @@ final class Styler {
 
     /// The paragraph at `range` of `storage`, styled by `spans`, which are the
     /// document's spans for that range.
-    func paragraph(from storage: NSTextStorage, range: NSRange, spans: [QuillSpan]) -> StyledParagraph {
+    func paragraph(from storage: NSTextStorage, range: NSRange, spans: [DeckleSpan]) -> StyledParagraph {
         let text = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
         let full = NSRange(location: 0, length: text.length)
         text.addAttributes(base, range: full)
@@ -169,7 +169,7 @@ final class Styler {
         let content = (text.string as NSString).rangeOfCharacter(from: .newlines, options: .backwards).location == NSNotFound
             ? full : NSRange(location: 0, length: max(0, full.length - 1))
 
-        func local(_ span: QuillSpan) -> NSRange? {
+        func local(_ span: DeckleSpan) -> NSRange? {
             let start = max(0, Int(span.start) - range.location)
             let end = min(full.length, Int(span.end) - range.location)
             return end >= start ? NSRange(location: start, length: end - start) : nil
@@ -179,18 +179,18 @@ final class Styler {
         for span in spans {
             guard let r = local(span) else { continue }
             switch span.kindValue {
-            case QuillHeading:
+            case DeckleHeading:
                 lineFont = fonts.heading(Int(span.level))
                 text.addAttributes([.font: lineFont, .foregroundColor: theme.heading], range: full)
                 if range.location > 0 { style.paragraphSpacingBefore = (fonts.size * 0.5).rounded() }
-            case QuillCodeBlock, QuillFrontMatter:
-                let isCode = span.kindValue == QuillCodeBlock
+            case DeckleCodeBlock, DeckleFrontMatter:
+                let isCode = span.kindValue == DeckleCodeBlock
                 lineFont = fonts.mono
                 tight = true
                 // Front matter's fences carry no flag: they are its first
                 // and last lines.
                 let isFence = isCode
-                    ? span.flags & UInt16(QuillCodeFenceOpen | QuillCodeFenceClose) != 0
+                    ? span.flags & UInt16(DeckleCodeFenceOpen | DeckleCodeFenceClose) != 0
                     : span.start == span.elem_start || span.end == span.elem_end
                 let revealed = isRevealed(span.element)
                 // A fence keeps its line, as the block's padding, but shows
@@ -218,7 +218,7 @@ final class Styler {
                 style.firstLineHeadIndent = Styler.blockPadding
                 style.headIndent = Styler.blockPadding
                 style.tailIndent = -Styler.blockPadding
-            case QuillBlockQuote:
+            case DeckleBlockQuote:
                 decoration.quoteDepth = max(decoration.quoteDepth, Int(span.level))
                 if span.flags != 0 {
                     decoration.callout = Int(span.flags)
@@ -227,15 +227,15 @@ final class Styler {
                 } else if decoration.callout == 0 {
                     text.addAttribute(.foregroundColor, value: theme.secondary, range: full)
                 }
-            case QuillTable:
+            case DeckleTable:
                 lineFont = fonts.mono
                 text.addAttribute(.font, value: lineFont, range: full)
-                if span.flags & UInt16(QuillTableDelimiter) != 0 {
+                if span.flags & UInt16(DeckleTableDelimiter) != 0 {
                     text.addAttribute(.foregroundColor, value: theme.syntax, range: full)
                 }
-            case QuillHTML:
+            case DeckleHTML:
                 text.addAttributes([.font: mono(for: lineFont), .foregroundColor: theme.secondary], range: r)
-            case QuillMathBlock:
+            case DeckleMathBlock:
                 text.addAttributes([.font: mono(for: lineFont), .foregroundColor: theme.type], range: r)
             default: break
             }
@@ -256,42 +256,42 @@ final class Styler {
         for span in spans {
             guard let r = local(span), r.length > 0 else { continue }
             switch span.kindValue {
-            case QuillEmphasis: addTrait(.italic, to: text, in: r)
-            case QuillStrong: addTrait(.bold, to: text, in: r)
-            case QuillStrike:
+            case DeckleEmphasis: addTrait(.italic, to: text, in: r)
+            case DeckleStrong: addTrait(.bold, to: text, in: r)
+            case DeckleStrike:
                 text.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: theme.secondary], range: r)
-            case QuillCode:
+            case DeckleCode:
                 text.addAttributes(
                     [.font: mono(for: lineFont), .foregroundColor: theme.codeText, .backgroundColor: theme.codeBackground], range: r)
-            case QuillLink, QuillWikiLink:
+            case DeckleLink, DeckleWikiLink:
                 text.addAttribute(.foregroundColor, value: theme.link, range: r)
                 // Hovering tells where the link goes; ⌘-click takes it.
-                let target = span.kindValue == QuillLink ? QuillLinkDest : QuillWikiTarget
+                let target = span.kindValue == DeckleLink ? DeckleLinkDest : DeckleWikiTarget
                 if let destination = spans.first(where: { $0.kindValue == target && $0.element == span.element }),
                     destination.range.upperBound <= storage.length, destination.range != span.range
                 {
                     text.addAttribute(.toolTip, value: (storage.string as NSString).substring(with: destination.range), range: r)
                 }
-            case QuillImage:
+            case DeckleImage:
                 text.addAttribute(.foregroundColor, value: theme.secondary, range: r)
-            case QuillFootnoteRef:
+            case DeckleFootnoteRef:
                 text.addAttribute(.foregroundColor, value: theme.accent, range: r)
                 resize(text, in: r, by: 0.75)
                 shifts.append((r, lineFont.pointSize * 0.35))
-            case QuillFootnoteDef:
+            case DeckleFootnoteDef:
                 text.addAttribute(.foregroundColor, value: theme.accent, range: r)
-            case QuillSuperscript:
+            case DeckleSuperscript:
                 resize(text, in: r, by: 0.75)
                 shifts.append((r, lineFont.pointSize * 0.35))
-            case QuillSubscript:
+            case DeckleSubscript:
                 resize(text, in: r, by: 0.75)
                 shifts.append((r, -lineFont.pointSize * 0.15))
-            case QuillInlineMath:
+            case DeckleInlineMath:
                 text.addAttributes([.font: mono(for: lineFont), .foregroundColor: theme.type], range: r)
-            case QuillHighlight:
+            case DeckleHighlight:
                 text.addAttribute(.backgroundColor, value: theme.highlight, range: r)
-            case QuillListMarker:
-                let task = spans.first { $0.kindValue == QuillTaskMarker && $0.start >= span.end }
+            case DeckleListMarker:
+                let task = spans.first { $0.kindValue == DeckleTaskMarker && $0.start >= span.end }
                 let revealed = task.map { isRevealed(Styler.taskPrefix(of: span, task: $0)) } ?? isRevealed(span.element)
                 if span.flags == 0 && isMarkdown && !revealed {
                     if task == nil {
@@ -319,9 +319,9 @@ final class Styler {
                 }
                 let prefix = text.attributedSubstring(from: NSRange(location: 0, length: prefixEnd))
                 style.headIndent = style.firstLineHeadIndent + ceil(prefix.size().width)
-            case QuillTaskMarker:
+            case DeckleTaskMarker:
                 let checked = span.flags != 0
-                let marker = spans.first { $0.kindValue == QuillListMarker && $0.element == span.element && $0.end <= span.start }
+                let marker = spans.first { $0.kindValue == DeckleListMarker && $0.element == span.element && $0.end <= span.start }
                 let revealed = marker.map { isRevealed(Styler.taskPrefix(of: $0, task: span)) } ?? isRevealed(span.element)
                 if isMarkdown && !revealed {
                     // A box is drawn over the brackets, which keep their room.
@@ -331,19 +331,19 @@ final class Styler {
                     text.addAttributes([.font: mono(for: lineFont), .foregroundColor: checked ? theme.syntax : theme.accent], range: r)
                 }
                 if checked { taskChecked = NSRange(location: r.upperBound, length: max(0, content.upperBound - r.upperBound)) }
-            case QuillTableCell:
-                if span.flags & UInt16(QuillTableHeader << 4) != 0 { addTrait(.bold, to: text, in: r) }
-            case QuillTokenKeyword: text.addAttribute(.foregroundColor, value: theme.keyword, range: r)
-            case QuillTokenString: text.addAttribute(.foregroundColor, value: theme.string, range: r)
-            case QuillTokenComment: text.addAttribute(.foregroundColor, value: theme.comment, range: r)
-            case QuillTokenNumber: text.addAttribute(.foregroundColor, value: theme.number, range: r)
-            case QuillTokenType: text.addAttribute(.foregroundColor, value: theme.type, range: r)
-            case QuillTokenFunction: text.addAttribute(.foregroundColor, value: theme.function, range: r)
-            case QuillTokenConstant: text.addAttribute(.foregroundColor, value: theme.constant, range: r)
-            case QuillTokenProperty: text.addAttribute(.foregroundColor, value: theme.property, range: r)
-            case QuillTokenPunctuation: text.addAttribute(.foregroundColor, value: theme.syntax, range: r)
-            case QuillTokenInserted: text.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: r)
-            case QuillTokenDeleted: text.addAttribute(.foregroundColor, value: NSColor.systemRed, range: r)
+            case DeckleTableCell:
+                if span.flags & UInt16(DeckleTableHeader << 4) != 0 { addTrait(.bold, to: text, in: r) }
+            case DeckleTokenKeyword: text.addAttribute(.foregroundColor, value: theme.keyword, range: r)
+            case DeckleTokenString: text.addAttribute(.foregroundColor, value: theme.string, range: r)
+            case DeckleTokenComment: text.addAttribute(.foregroundColor, value: theme.comment, range: r)
+            case DeckleTokenNumber: text.addAttribute(.foregroundColor, value: theme.number, range: r)
+            case DeckleTokenType: text.addAttribute(.foregroundColor, value: theme.type, range: r)
+            case DeckleTokenFunction: text.addAttribute(.foregroundColor, value: theme.function, range: r)
+            case DeckleTokenConstant: text.addAttribute(.foregroundColor, value: theme.constant, range: r)
+            case DeckleTokenProperty: text.addAttribute(.foregroundColor, value: theme.property, range: r)
+            case DeckleTokenPunctuation: text.addAttribute(.foregroundColor, value: theme.syntax, range: r)
+            case DeckleTokenInserted: text.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: r)
+            case DeckleTokenDeleted: text.addAttribute(.foregroundColor, value: NSColor.systemRed, range: r)
             default: break
             }
         }
@@ -362,13 +362,13 @@ final class Styler {
         for span in spans {
             guard let r = local(span), r.length > 0 else { continue }
             switch span.kindValue {
-            case QuillMarker:
+            case DeckleMarker:
                 if isRevealed(span.element) {
                     text.addAttribute(.foregroundColor, value: theme.syntax, range: r)
                 } else {
                     hide(r)
                 }
-            case QuillCalloutTag:
+            case DeckleCalloutTag:
                 let after = NSRange(location: r.upperBound, length: max(0, content.upperBound - r.upperBound))
                 let title = (text.string as NSString).substring(with: after).trimmingCharacters(in: .whitespaces)
                 let color = theme.calloutColor(Int(span.flags))
@@ -385,7 +385,7 @@ final class Styler {
                     decoration.calloutName = Styler.calloutNames[min(5, Int(span.flags))]
                     decoration.calloutHasTitle = !title.isEmpty
                 }
-            case QuillThematicBreak:
+            case DeckleThematicBreak:
                 if isRevealed(span.element) {
                     text.addAttribute(.foregroundColor, value: theme.syntax, range: r)
                 } else {
@@ -398,7 +398,7 @@ final class Styler {
         for span in spans {
             guard let r = local(span), r.length > 0 else { continue }
             switch span.kindValue {
-            case QuillLinkDest, QuillImageDest:
+            case DeckleLinkDest, DeckleImageDest:
                 // Shown with its link's syntax, or on its own for a bare link.
                 if !hidden.contains(where: { NSIntersectionRange($0, r).length > 0 }) && span.range != span.element {
                     text.addAttributes(
@@ -434,7 +434,7 @@ final class Styler {
 @MainActor
 protocol WidgetSource: AnyObject {
     func applyWidgets(
-        to text: NSMutableAttributedString, range: NSRange, spans: [QuillSpan], style: NSMutableParagraphStyle,
+        to text: NSMutableAttributedString, range: NSRange, spans: [DeckleSpan], style: NSMutableParagraphStyle,
         decoration: inout LineDecoration, styler: Styler, hide: (NSRange) -> Void)
 }
 

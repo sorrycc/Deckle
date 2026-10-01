@@ -1,5 +1,5 @@
 //! The style span shared with the app, and its kinds. Keep in sync with
-//! `quill_core.h`.
+//! `deckle_core.h`.
 
 /// A styled range within one line. `elem_start..elem_end` is the whole
 /// element the piece belongs to, which may cover several lines: a marker is

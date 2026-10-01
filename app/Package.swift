@@ -4,13 +4,13 @@ import PackageDescription
 // Build through scripts/bundle.sh, which builds the Rust static library first
 // and passes its directory to the linker.
 let package = Package(
-    name: "Quill",
+    name: "Deckle",
     platforms: [.macOS(.v26)],
     targets: [
-        .systemLibrary(name: "CQuillCore", path: "Sources/CQuillCore"),
+        .systemLibrary(name: "CDeckleCore", path: "Sources/CDeckleCore"),
         .executableTarget(
-            name: "Quill",
-            dependencies: ["CQuillCore"]
+            name: "Deckle",
+            dependencies: ["CDeckleCore"]
         ),
     ]
 )

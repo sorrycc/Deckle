@@ -13,7 +13,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 440),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "Welcome to Quill"
+        window.title = "Welcome to Deckle"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
@@ -45,7 +45,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         // The app, on the left.
         let icon = NSImageView(image: NSApp.applicationIconImage)
         icon.imageScaling = .scaleProportionallyUpOrDown
-        let title = NSTextField(labelWithString: "Welcome to Quill")
+        let title = NSTextField(labelWithString: "Welcome to Deckle")
         title.font = .systemFont(ofSize: 28, weight: .bold)
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let subtitle = NSTextField(labelWithString: version.isEmpty ? "A fast Markdown editor" : "Version \(version)")

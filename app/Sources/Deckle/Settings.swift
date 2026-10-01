@@ -2,7 +2,7 @@ import AppKit
 
 extension Notification.Name {
     /// The look of the editor changed: theme, font or layout.
-    static let appearanceDidChange = Notification.Name("QuillAppearanceDidChange")
+    static let appearanceDidChange = Notification.Name("DeckleAppearanceDidChange")
 }
 
 /// Every setting the Settings window shows, stored in user defaults. Launch
@@ -57,6 +57,24 @@ enum Settings {
     static var sortsNotesByTitle: Bool {
         get { defaults.bool(forKey: "sortsNotesByTitle") }
         set { defaults.set(newValue, forKey: "sortsNotesByTitle") }
+    }
+
+    // MARK: Migration
+
+    /// Copies settings, workspaces and window layout from the app's old name,
+    /// Quill, once. The old domain is left as it was.
+    static func migrateFromQuill() {
+        let marker = "migratedFromQuill"
+        guard !defaults.bool(forKey: marker),
+              let old = defaults.persistentDomain(forName: "dev.sorrycc.quill") else { return }
+        let renamed = [
+            "NSWindow Frame QuillWindow": "NSWindow Frame DeckleWindow",
+            "NSSplitView Subview Frames QuillSplit": "NSSplitView Subview Frames DeckleSplit",
+        ]
+        for (key, value) in old where defaults.object(forKey: renamed[key] ?? key) == nil {
+            defaults.set(value, forKey: renamed[key] ?? key)
+        }
+        defaults.set(true, forKey: marker)
     }
 
     // MARK: Workspaces

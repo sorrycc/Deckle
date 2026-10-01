@@ -1,5 +1,5 @@
-use quill_core::doc::Doc;
-use quill_core::span::*;
+use deckle_core::doc::Doc;
+use deckle_core::span::*;
 
 const SAMPLE: &str = r#"---
 title: Sample
@@ -9,7 +9,7 @@ tags: [a, b]
 # Heading one
 
 Some *emphasis*, **strong**, ~~strike~~, `code`, H~2~O, x^2^, ==marked== and a [link](https://example.com "t").
-A [[Wiki Page|label]] and [[Plain]] with a footnote[^1] and https://quill.dev/docs. Math $a^2$.
+A [[Wiki Page|label]] and [[Plain]] with a footnote[^1] and https://deckle.md/docs. Math $a^2$.
 
 > quoted **text**
 > second line
@@ -82,7 +82,7 @@ fn sample_spans() {
     assert!(has(WIKI_TARGET, "Wiki Page"));
     assert!(has(WIKI_LINK, "Plain"));
     assert!(has(FOOTNOTE_REF, "[^1]"));
-    assert!(has(LINK, "https://quill.dev/docs"));
+    assert!(has(LINK, "https://deckle.md/docs"));
     assert!(has(INLINE_MATH, "$a^2$"));
     assert!(has(BLOCK_QUOTE, "> quoted **text**"));
     assert!(has(MARKER, "> "));

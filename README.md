@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="app/Resources/Quill-1024.png" width="128" height="128" alt="Quill icon">
+  <img src="app/Resources/Deckle-1024.png" width="128" height="128" alt="Deckle icon">
 </p>
 
-# Quill
+# Deckle
 
 A fast Markdown editor for macOS, with a native AppKit interface and a Rust core. Notes stay plain `.md` files in a folder of your choosing.
 
@@ -26,11 +26,11 @@ A fast Markdown editor for macOS, with a native AppKit interface and a Rust core
 
 ```sh
 scripts/bundle.sh                    # release build; pass `debug` for a debug build
-open build/Quill.app
-open -a build/Quill.app ~/Notes      # open a folder as the workspace
+open build/Deckle.app
+open -a build/Deckle.app ~/Notes      # open a folder as the workspace
 ```
 
-The script builds the Rust core and the Swift app, then assembles an ad-hoc signed `build/Quill.app`. `QUILL_OUT` and `QUILL_BUNDLE_ID` build a second copy with settings of its own.
+The script builds the Rust core and the Swift app, then assembles an ad-hoc signed `build/Deckle.app`. `DECKLE_OUT` and `DECKLE_BUNDLE_ID` build a second copy with settings of its own.
 
 `cargo test --release` runs the core's tests. One checks every edit against a fresh parse of the whole note, and one prints parse and edit times for a document of about 800 KB.
 
@@ -44,7 +44,7 @@ Measured on the development machine with a release build:
 | Window shown after launch | about 360 ms warm; over a second on the first launch after a build, while macOS checks the new binary |
 | 50,000-note workspace | file list ready in 0.4 s, full index in 2.1 s, both on background threads |
 
-`build/Quill.app/Contents/MacOS/Quill -timing YES` prints launch and indexing times. `-benchmark 300` types 300 characters into the open note and prints the time each took. See [Usage](docs/usage.md) for the other launch arguments.
+`build/Deckle.app/Contents/MacOS/Deckle -timing YES` prints launch and indexing times. `-benchmark 300` types 300 characters into the open note and prints the time each took. See [Usage](docs/usage.md) for the other launch arguments.
 
 ## Project layout
 
@@ -52,9 +52,9 @@ Measured on the development machine with a release build:
 |---|---|
 | `core/` | Rust static library: parses Markdown into style spans, highlights code, indexes and watches the workspace, and runs search. |
 | `app/` | SwiftPM package with the AppKit app. No Xcode project is required. |
-| `app/Sources/CQuillCore/quill_core.h` | The C interface between the two. |
+| `app/Sources/CDeckleCore/deckle_core.h` | The C interface between the two. |
 | `app/Resources/Bundled/Renderer/` | KaTeX and Mermaid, loaded in an offscreen web view only when a note has math or a diagram. |
-| `scripts/bundle.sh` | Builds everything and assembles `build/Quill.app`. |
+| `scripts/bundle.sh` | Builds everything and assembles `build/Deckle.app`. |
 
 ## How the editor works
 

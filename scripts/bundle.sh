@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Builds the Rust core and the Swift app, then assembles and ad-hoc signs
-# build/Quill.app. Usage: scripts/bundle.sh [debug|release]   (default: release)
-# QUILL_OUT and QUILL_BUNDLE_ID build a second copy with settings of its own,
-# for trying changes while the everyday Quill keeps running.
+# build/Deckle.app. Usage: scripts/bundle.sh [debug|release]   (default: release)
+# DECKLE_OUT and DECKLE_BUNDLE_ID build a second copy with settings of its own,
+# for trying changes while the everyday Deckle keeps running.
 set -euo pipefail
 
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="${QUILL_OUT:-$ROOT/build}"
-APP="$OUT/Quill.app"
-BUNDLE_ID="${QUILL_BUNDLE_ID:-dev.sorrycc.quill}"
+OUT="${DECKLE_OUT:-$ROOT/build}"
+APP="$OUT/Deckle.app"
+BUNDLE_ID="${DECKLE_BUNDLE_ID:-dev.sorrycc.deckle}"
 VERSION="0.1.0"
 
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
@@ -24,7 +24,7 @@ echo "==> swift build ($CONFIG)"
 SWIFT_OUT="$(swift build --package-path "$ROOT/app" -c "$CONFIG" --show-bin-path)"
 # SwiftPM doesn't track the Rust static library, so a Rust-only change would
 # not relink. Removing the executable forces the link step.
-rm -f "$SWIFT_OUT/Quill"
+rm -f "$SWIFT_OUT/Deckle"
 swift build --package-path "$ROOT/app" -c "$CONFIG" -Xlinker -L"$RUST_OUT" -Xlinker -dead_strip
 
 echo "==> assembling $APP"
@@ -36,16 +36,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Quill</string>
-    <key>CFBundleDisplayName</key><string>Quill</string>
-    <key>CFBundleExecutable</key><string>Quill</string>
+    <key>CFBundleName</key><string>Deckle</string>
+    <key>CFBundleDisplayName</key><string>Deckle</string>
+    <key>CFBundleExecutable</key><string>Deckle</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
-    <key>CFBundleIconFile</key><string>Quill</string>
+    <key>CFBundleIconFile</key><string>Deckle</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
@@ -69,10 +69,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-cp "$SWIFT_OUT/Quill" "$APP/Contents/MacOS/Quill"
+cp "$SWIFT_OUT/Deckle" "$APP/Contents/MacOS/Deckle"
 # Debug builds keep their symbols for the debugger.
-[ "$CONFIG" = "release" ] && strip -x "$APP/Contents/MacOS/Quill"
-cp "$ROOT/app/Resources/Quill.icns" "$APP/Contents/Resources/Quill.icns"
+[ "$CONFIG" = "release" ] && strip -x "$APP/Contents/MacOS/Deckle"
+cp "$ROOT/app/Resources/Deckle.icns" "$APP/Contents/Resources/Deckle.icns"
 # Bundled files the app reads at run time, such as the diagram renderer.
 if [ -d "$ROOT/app/Resources/Bundled" ]; then
     cp -R "$ROOT/app/Resources/Bundled/." "$APP/Contents/Resources/"

@@ -1,5 +1,5 @@
 import AppKit
-import CQuillCore
+import CDeckleCore
 
 /// Something in the text that can be followed.
 enum EditorLink {
@@ -243,10 +243,10 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         guard widgetStore != nil else { return }
         // The core answers with one span per line; a block is laid out once.
         var done: Set<Int> = []
-        for kind in [QuillImage, QuillTable, QuillMathBlock, QuillCodeBlock, QuillInlineMath] {
+        for kind in [DeckleImage, DeckleTable, DeckleMathBlock, DeckleCodeBlock, DeckleInlineMath] {
             for span in core.spans(ofKind: kind) {
-                if kind == QuillImage && span.flags & 1 == 0 { continue }
-                if kind == QuillCodeBlock && span.flags & UInt16(QuillCodeDiagram | QuillCodeMath) == 0 { continue }
+                if kind == DeckleImage && span.flags & 1 == 0 { continue }
+                if kind == DeckleCodeBlock && span.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) == 0 { continue }
                 if done.insert(span.element.location).inserted { restyle(span.element) }
             }
         }
@@ -380,15 +380,15 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let spans = core.spans(in: lines)
         for span in spans {
             switch span.kindValue {
-            case QuillMarker, QuillCalloutTag, QuillThematicBreak, QuillImage, QuillTable, QuillMathBlock, QuillInlineMath,
-                QuillCodeBlock, QuillFrontMatter, QuillListMarker, QuillTaskMarker:
+            case DeckleMarker, DeckleCalloutTag, DeckleThematicBreak, DeckleImage, DeckleTable, DeckleMathBlock, DeckleInlineMath,
+                DeckleCodeBlock, DeckleFrontMatter, DeckleListMarker, DeckleTaskMarker:
                 var element = span.element
                 // A task's syntax shows around its prefix, not its whole line.
-                if span.kindValue == QuillListMarker || span.kindValue == QuillTaskMarker {
-                    let marker = span.kindValue == QuillListMarker ? span
-                        : spans.first { $0.kindValue == QuillListMarker && $0.element == span.element && $0.end <= span.start }
-                    let task = span.kindValue == QuillTaskMarker ? span
-                        : spans.first { $0.kindValue == QuillTaskMarker && $0.element == span.element && $0.start >= span.end }
+                if span.kindValue == DeckleListMarker || span.kindValue == DeckleTaskMarker {
+                    let marker = span.kindValue == DeckleListMarker ? span
+                        : spans.first { $0.kindValue == DeckleListMarker && $0.element == span.element && $0.end <= span.start }
+                    let task = span.kindValue == DeckleTaskMarker ? span
+                        : spans.first { $0.kindValue == DeckleTaskMarker && $0.element == span.element && $0.start >= span.end }
                     if let marker, let task { element = Styler.taskPrefix(of: marker, task: task) }
                 }
                 if selection.location <= element.upperBound && selection.upperBound >= element.location, found.last != element,
@@ -478,7 +478,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let string = storage.string as NSString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
         return core.spans(in: lines).first {
-            $0.kindValue == QuillCodeBlock && $0.flags & UInt16(QuillCodeDiagram | QuillCodeMath) == 0
+            $0.kindValue == DeckleCodeBlock && $0.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) == 0
         }?.element
     }
 
@@ -636,14 +636,14 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
             saveFailed = false
             delegate?.editorDidSave(self)
         } catch {
-            NSLog("Quill: could not save \(url.path): \(error.localizedDescription)")
+            NSLog("Deckle: could not save \(url.path): \(error.localizedDescription)")
             // Said once: every edit tries again, and the file may stay
             // read-only for a while.
             guard !saveFailed else { return }
             saveFailed = true
             let alert = NSAlert()
             alert.messageText = "The note couldn't be saved"
-            alert.informativeText = "\(url.lastPathComponent) couldn't be written. \(error.localizedDescription) Your edits stay in the editor, and Quill will try again after the next change."
+            alert.informativeText = "\(url.lastPathComponent) couldn't be written. \(error.localizedDescription) Your edits stay in the editor, and Deckle will try again after the next change."
             alert.alertStyle = .warning
             if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
         }
@@ -708,7 +708,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 
     var headings: [Heading] {
         let string = storage.string as NSString
-        return core.spans(ofKind: QuillHeading).compactMap { span in
+        return core.spans(ofKind: DeckleHeading).compactMap { span in
             guard span.range.upperBound <= string.length else { return nil }
             var title = string.substring(with: span.range)
             title = title.trimmingCharacters(in: CharacterSet(charactersIn: "# \t"))
@@ -735,13 +735,13 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         }
         for span in spans where span.element.location <= index && index <= span.element.upperBound {
             switch span.kindValue {
-            case QuillWikiLink, QuillWikiTarget:
-                if let target = text(of: QuillWikiTarget, in: span.element) { return .wiki(target) }
-            case QuillLink, QuillLinkDest:
-                if let destination = text(of: QuillLinkDest, in: span.element) { return .destination(destination) }
-            case QuillImage, QuillImageDest:
-                if let destination = text(of: QuillImageDest, in: span.element) { return .destination(destination) }
-            case QuillFootnoteRef:
+            case DeckleWikiLink, DeckleWikiTarget:
+                if let target = text(of: DeckleWikiTarget, in: span.element) { return .wiki(target) }
+            case DeckleLink, DeckleLinkDest:
+                if let destination = text(of: DeckleLinkDest, in: span.element) { return .destination(destination) }
+            case DeckleImage, DeckleImageDest:
+                if let destination = text(of: DeckleImageDest, in: span.element) { return .destination(destination) }
+            case DeckleFootnoteRef:
                 let label = string.substring(with: span.range).trimmingCharacters(in: CharacterSet(charactersIn: "[]^"))
                 return .footnote(label)
             default: break
@@ -751,12 +751,12 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     }
 
     /// The task checkbox at a character, if there is one.
-    func taskMarker(at index: Int) -> QuillSpan? {
+    func taskMarker(at index: Int) -> DeckleSpan? {
         guard isMarkdown, storage.length > 0 else { return nil }
         let string = storage.string as NSString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
         return core.spans(in: lines).first {
-            $0.kindValue == QuillTaskMarker && Int($0.start) <= index && index < Int($0.end)
+            $0.kindValue == DeckleTaskMarker && Int($0.start) <= index && index < Int($0.end)
         }
     }
 
@@ -778,7 +778,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         guard isMarkdown, storage.length > 0 else { return !isMarkdown }
         let string = storage.string as NSString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length), length: 0))
-        return core.spans(in: lines).contains { $0.kindValue == QuillCodeBlock || $0.kindValue == QuillFrontMatter }
+        return core.spans(in: lines).contains { $0.kindValue == DeckleCodeBlock || $0.kindValue == DeckleFrontMatter }
     }
 }
 

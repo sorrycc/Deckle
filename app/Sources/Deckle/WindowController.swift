@@ -1,5 +1,5 @@
 import AppKit
-import CQuillCore
+import CDeckleCore
 
 /// The window of one workspace: the file tree, the note list, and the tabs
 /// with their editors.
@@ -60,10 +60,10 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         split.addSplitViewItem(treeItem)
         split.addSplitViewItem(listItem)
         split.addSplitViewItem(paneItem)
-        split.splitView.autosaveName = "QuillSplit"
+        split.splitView.autosaveName = "DeckleSplit"
         // The first window: columns of a comfortable width, until the user's
         // own are saved.
-        if Settings.defaults.object(forKey: "NSSplitView Subview Frames QuillSplit") == nil {
+        if Settings.defaults.object(forKey: "NSSplitView Subview Frames DeckleSplit") == nil {
             tree.view.frame.size.width = 220
             list.view.frame.size.width = 300
         }
@@ -72,14 +72,14 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         Debug.mark("split view set")
 
         configureControls()
-        let toolbar = NSToolbar(identifier: "QuillToolbar")
+        let toolbar = NSToolbar(identifier: "DeckleToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
         window.toolbarStyle = .unified
-        window.setFrameAutosaveName("QuillWindow")
-        if !window.setFrameUsingName("QuillWindow") { window.center() }
+        window.setFrameAutosaveName("DeckleWindow")
+        if !window.setFrameUsingName("DeckleWindow") { window.center() }
         Debug.mark("toolbar set")
 
         workspace.onFolderChange = { [weak self] url in self?.tree.folderChanged(url) }

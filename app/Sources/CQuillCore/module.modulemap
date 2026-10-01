@@ -1,5 +1,0 @@
-module CQuillCore {
-    header "quill_core.h"
-    link "quill_core"
-    export *
-}

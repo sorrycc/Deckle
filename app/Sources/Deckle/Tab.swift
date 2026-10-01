@@ -130,14 +130,14 @@ final class Tab {
                 }
             }
         } else if FileManager.default.fileExists(atPath: url.path) {
-            view = PlaceholderView(symbol: "doc", title: url.lastPathComponent, detail: "Quill can't show this file.", url: url)
+            view = PlaceholderView(symbol: "doc", title: url.lastPathComponent, detail: "Deckle can't show this file.", url: url)
         } else {
             view = PlaceholderView(symbol: "questionmark.folder", title: url.lastPathComponent, detail: "This file is gone.")
         }
     }
 }
 
-/// What a tab shows when it has no file, or one Quill can't show.
+/// What a tab shows when it has no file, or one Deckle can't show.
 final class PlaceholderView: NSView {
     private let url: URL?
 

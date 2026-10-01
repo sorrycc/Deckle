@@ -413,7 +413,7 @@ final class NoteCell: NSTableCellView {
 @MainActor
 enum Thumbnails {
     private static let cache = NSCache<NSString, NSImage>()
-    private static let queue = DispatchQueue(label: "dev.sorrycc.quill.thumbnails", qos: .userInitiated, attributes: .concurrent)
+    private static let queue = DispatchQueue(label: "dev.sorrycc.deckle.thumbnails", qos: .userInitiated, attributes: .concurrent)
 
     /// Hands `done` an image at most `side` pixels on its longer side.
     static func load(_ path: String, side: Int, done: @escaping @MainActor (NSImage?) -> Void) {

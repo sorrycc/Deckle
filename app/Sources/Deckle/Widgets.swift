@@ -1,5 +1,5 @@
 import AppKit
-import CQuillCore
+import CDeckleCore
 
 /// An image drawn above its `![alt](src)` line.
 final class ImageWidget: Widget {
@@ -115,7 +115,7 @@ final class WidgetStore: WidgetSource {
     }
 
     func applyWidgets(
-        to text: NSMutableAttributedString, range: NSRange, spans: [QuillSpan], style: NSMutableParagraphStyle,
+        to text: NSMutableAttributedString, range: NSRange, spans: [DeckleSpan], style: NSMutableParagraphStyle,
         decoration: inout LineDecoration, styler: Styler, hide: (NSRange) -> Void
     ) {
         guard let editor else { return }
@@ -127,8 +127,8 @@ final class WidgetStore: WidgetSource {
 
         for span in spans {
             switch span.kindValue {
-            case QuillImage where span.flags & 1 != 0:
-                guard let destination = spans.first(where: { $0.kindValue == QuillImageDest && $0.element == span.element }) else { continue }
+            case DeckleImage where span.flags & 1 != 0:
+                guard let destination = spans.first(where: { $0.kindValue == DeckleImageDest && $0.element == span.element }) else { continue }
                 let source = (editor.storage.string as NSString).substring(with: destination.range)
                 guard let image = image(for: source, line: range) else { continue }
                 let size = fit(image.size, width: editor.columnWidth - 2 * style.firstLineHeadIndent, height: 560)
@@ -140,7 +140,7 @@ final class WidgetStore: WidgetSource {
                     decoration.lineHeight = 6
                 }
                 return
-            case QuillTable:
+            case DeckleTable:
                 if styler.isRevealed(span.element) { return }
                 hide(content)
                 decoration.lineHeight = Self.closedLine
@@ -149,14 +149,14 @@ final class WidgetStore: WidgetSource {
                 decoration.widget = widget
                 style.paragraphSpacingBefore += widget.height + 4
                 return
-            case QuillMathBlock where span.flags & 1 != 0:
+            case DeckleMathBlock where span.flags & 1 != 0:
                 rendered(.math, source: Self.mathSource(of: span.element, in: editor), span: span, line: range, content: content, style: style, decoration: &decoration, styler: styler, hide: hide)
                 return
-            case QuillCodeBlock where span.flags & UInt16(QuillCodeDiagram | QuillCodeMath) != 0:
-                let kind: Renderer.Kind = span.flags & UInt16(QuillCodeDiagram) != 0 ? .mermaid : .math
+            case DeckleCodeBlock where span.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) != 0:
+                let kind: Renderer.Kind = span.flags & UInt16(DeckleCodeDiagram) != 0 ? .mermaid : .math
                 rendered(kind, source: Self.fenceSource(of: span.element, in: editor), span: span, line: range, content: content, style: style, decoration: &decoration, styler: styler, hide: hide)
                 return
-            case QuillInlineMath where !styler.isRevealed(span.element):
+            case DeckleInlineMath where !styler.isRevealed(span.element):
                 let r = local(span.range)
                 guard r.length > 2 else { continue }
                 let source = (editor.storage.string as NSString).substring(with: NSRange(location: span.range.location + 1, length: span.range.length - 2))
@@ -180,7 +180,7 @@ final class WidgetStore: WidgetSource {
     /// A block of math or a diagram: drawn in place of its source, or above
     /// it while the selection is in it.
     private func rendered(
-        _ kind: Renderer.Kind, source: String, span: QuillSpan, line: NSRange, content: NSRange, style: NSMutableParagraphStyle,
+        _ kind: Renderer.Kind, source: String, span: DeckleSpan, line: NSRange, content: NSRange, style: NSMutableParagraphStyle,
         decoration: inout LineDecoration, styler: Styler, hide: (NSRange) -> Void
     ) {
         let revealed = styler.isRevealed(span.element)
@@ -290,14 +290,14 @@ final class WidgetStore: WidgetSource {
         var row: [TableWidget.Cell] = []
         var line = -1
         let body = styler.fonts.body
-        for span in editor.core.spans(in: string.paragraphRange(for: element)) where span.kindValue == QuillTableCell {
+        for span in editor.core.spans(in: string.paragraphRange(for: element)) where span.kindValue == DeckleTableCell {
             let lineStart = string.lineRange(for: NSRange(location: Int(span.start), length: 0)).location
             if lineStart != line {
                 if !row.isEmpty { rows.append(row) }
                 row = []
                 line = lineStart
             }
-            let header = span.flags & UInt16(QuillTableHeader << 4) != 0
+            let header = span.flags & UInt16(DeckleTableHeader << 4) != 0
             let alignment: NSTextAlignment = switch Int(span.flags & 0xF) {
             case 2: .center
             case 3: .right

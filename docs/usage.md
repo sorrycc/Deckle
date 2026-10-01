@@ -1,8 +1,8 @@
-# Using Quill
+# Using Deckle
 
 ## Workspaces
 
-A workspace is a folder. Open one with File > Open Folder… (⌘O), from File > Open Recent, by dropping a folder on the app, or from the switcher at the bottom of the sidebar. Quill reopens the last workspace and its tabs at launch; when there is none, a Welcome window offers a folder to open and the workspaces opened before. Hidden files and `node_modules` folders are left out.
+A workspace is a folder. Open one with File > Open Folder… (⌘O), from File > Open Recent, by dropping a folder on the app, or from the switcher at the bottom of the sidebar. Deckle reopens the last workspace and its tabs at launch; when there is none, a Welcome window offers a folder to open and the workspaces opened before. Hidden files and `node_modules` folders are left out.
 
 Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). The workspace's own row, at the top of the tree, lists every note. Clicking empty space in the tree, ⌘-clicking the selected row or pressing Escape goes back to it. Titles sort as a person reads them, so "Note 2" comes before "Note 10". Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
 
@@ -56,11 +56,11 @@ The line under the editor shows how many notes link to this one (click it for th
 
 ## Saving
 
-Edits are saved 0.6 seconds after you stop typing, when you switch tabs or apps, and when Quill quits. When another app changes an open note that has no unsaved edits, Quill takes in the change. If the note has unsaved edits, Quill's version is written over the other at the next save.
+Edits are saved 0.6 seconds after you stop typing, when you switch tabs or apps, and when Deckle quits. When another app changes an open note that has no unsaved edits, Deckle takes in the change. If the note has unsaved edits, Deckle's version is written over the other at the next save.
 
 ## Settings
 
-Settings (⌘,) holds the theme, the editor font and size, whether syntax hides, spell checking, the line width and the line height. ⌘+ and ⌘- change the font size. Settings are stored in the `dev.sorrycc.quill` user defaults.
+Settings (⌘,) holds the theme, the editor font and size, whether syntax hides, spell checking, the line width and the line height. ⌘+ and ⌘- change the font size. Settings are stored in the `dev.sorrycc.deckle` user defaults.
 
 ## Launch arguments
 

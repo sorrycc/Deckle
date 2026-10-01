@@ -1,5 +1,5 @@
 import AppKit
-import CQuillCore
+import CDeckleCore
 
 /// The editor's text view: what typing and clicking mean in Markdown.
 final class EditorTextView: NSTextView {
@@ -227,7 +227,7 @@ final class EditorTextView: NSTextView {
     }
 
     /// The task box drawn at `point`, if there is one.
-    func taskBox(at point: NSPoint) -> QuillSpan? {
+    func taskBox(at point: NSPoint) -> DeckleSpan? {
         guard let editor, let window else { return nil }
         let index = characterIndexForInsertion(at: point)
         guard let marker = editor.taskMarker(at: index) ?? editor.taskMarker(at: max(0, index - 1)) else { return nil }

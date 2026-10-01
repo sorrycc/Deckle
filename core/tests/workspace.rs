@@ -1,4 +1,4 @@
-use quill_core::workspace::Workspace;
+use deckle_core::workspace::Workspace;
 use std::ffi::{c_char, c_int, c_void};
 
 unsafe extern "C" fn event(_: *mut c_void, _: c_int, _: *const c_char) {}
@@ -15,7 +15,7 @@ fn wait_for(mut done: impl FnMut() -> bool) {
 
 #[test]
 fn indexes_lists_and_links() {
-    let root = std::env::temp_dir().join(format!("quill-test-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("deckle-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("sub/.hidden")).unwrap();
     std::fs::write(root.join("Alpha.md"), "---\ntitle: \"Alpha Note\"\n---\n\n# Ignored heading\n\nSee [[Beta]] and [[sub/Gamma|the third]].\n\n![pic](pic.png)\n").unwrap();
@@ -60,7 +60,7 @@ fn indexes_lists_and_links() {
 
 #[test]
 fn titles_keep_dates_and_numbers() {
-    let root = std::env::temp_dir().join(format!("quill-test-titles-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("deckle-test-titles-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("a.md"), "# 2026-09-28\n\nToday.\n\n---\n\n## Notes\n").unwrap();

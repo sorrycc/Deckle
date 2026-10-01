@@ -1,11 +1,11 @@
 [package]
-name = "quill-core"
+name = "deckle-core"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
 [lib]
-name = "quill_core"
+name = "deckle_core"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]

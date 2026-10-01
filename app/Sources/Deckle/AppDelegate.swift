@@ -1,5 +1,5 @@
 import AppKit
-import CQuillCore
+import CDeckleCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Debug.mark("did finish launching")
-        // Quill has tabs of its own. This keeps the system's Show Tab Bar and
+        // Deckle has tabs of its own. This keeps the system's Show Tab Bar and
         // Show All Tabs out of the View menu.
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.mainMenu = MainMenu.build()
@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.prompt = "Open"
-        panel.message = "Choose a folder of notes. Quill keeps them as plain Markdown files."
+        panel.message = "Choose a folder of notes. Deckle keeps them as plain Markdown files."
         if panel.runModal() == .OK, let url = panel.url {
             openWorkspace(url)
         } else if windowController == nil {
@@ -272,7 +272,7 @@ enum Debug {
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                // The window server's pictures of Quill's own windows only:
+                // The window server's pictures of Deckle's own windows only:
                 // the main window, and any panel over it beside it.
                 let others = NSApp.windows.filter { $0 !== controller.window && $0.isVisible && $0.frame.minX > -10_000 }
                 for window in [controller.window].compactMap({ $0 }) + others {

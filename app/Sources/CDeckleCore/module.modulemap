@@ -1,0 +1,5 @@
+module CDeckleCore {
+    header "deckle_core.h"
+    link "deckle_core"
+    export *
+}
