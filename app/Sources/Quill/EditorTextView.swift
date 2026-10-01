@@ -1,0 +1,246 @@
+import AppKit
+import CQuillCore
+
+/// The editor's text view: what typing and clicking mean in Markdown.
+final class EditorTextView: NSTextView {
+    weak var editor: EditorView?
+
+    /// A list item or quote up to the insertion point: indent and quote
+    /// marks, then a list marker, a task box and the space before the text.
+    private static let itemPattern = try! NSRegularExpression(
+        pattern: #"^([ \t]*(?:>[ \t]?)*)(?:([-*+]|\d{1,9}[.)])([ \t]+\[[ xX]\])?([ \t]+))?(.*)$"#)
+
+    private struct Item {
+        let prefix: String
+        let marker: String
+        let task: String
+        let gap: String
+        let content: String
+    }
+
+    private func item(in line: String) -> Item? {
+        let range = NSRange(location: 0, length: (line as NSString).length)
+        guard let match = Self.itemPattern.firstMatch(in: line, range: range) else { return nil }
+        func group(_ index: Int) -> String {
+            let r = match.range(at: index)
+            return r.location == NSNotFound ? "" : (line as NSString).substring(with: r)
+        }
+        let item = Item(prefix: group(1), marker: group(2), task: group(3), gap: group(4), content: group(5))
+        // Plain text is neither a list item nor a quote.
+        return item.marker.isEmpty && !item.prefix.contains(">") ? nil : item
+    }
+
+    // MARK: Typing
+
+    /// The completion list takes the arrow keys, Return and Escape while open.
+    override func doCommand(by selector: Selector) {
+        if editor?.completion.handle(selector) == true { return }
+        super.doCommand(by: selector)
+    }
+
+    /// Pasting an image, or image files, saves them beside the note and links
+    /// them.
+    override func paste(_ sender: Any?) {
+        let board = NSPasteboard.general
+        if let editor, editor.isMarkdown {
+            let files = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+            if !files.isEmpty {
+                for file in files { editor.insertImageOrLink(file, replacing: selectedRange()) }
+                return
+            }
+            if board.string(forType: .string) == nil, let data = board.data(forType: .png) ?? board.data(forType: .tiff) {
+                editor.insertImage(data: data, replacing: selectedRange())
+                return
+            }
+        }
+        pasteAsPlainText(sender)
+    }
+
+    /// Dropped files become links where they land.
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let files = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard let editor, editor.isMarkdown, !files.isEmpty else { return super.performDragOperation(sender) }
+        let index = characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil))
+        setSelectedRange(NSRange(location: index, length: 0))
+        for file in files { editor.insertImageOrLink(file, replacing: selectedRange()) }
+        return true
+    }
+
+    /// Return continues a list or a quote, and ends it on an empty item.
+    override func insertNewline(_ sender: Any?) {
+        let selection = selectedRange()
+        guard let editor, editor.isMarkdown, selection.length == 0, !hasMarkedText(), !editor.isCode(at: selection.location) else {
+            return super.insertNewline(sender)
+        }
+        let string = self.string as NSString
+        let line = string.lineRange(for: selection)
+        let head = string.substring(with: NSRange(location: line.location, length: selection.location - line.location))
+        guard let item = item(in: head) else { return super.insertNewline(sender) }
+        if item.content.trimmingCharacters(in: .whitespaces).isEmpty {
+            // Nothing typed in this item: Return takes its marker away.
+            let lineEnd = string.substring(with: NSRange(location: selection.location, length: line.upperBound - selection.location))
+            guard lineEnd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return super.insertNewline(sender) }
+            insertText("", replacementRange: NSRange(location: line.location, length: selection.location - line.location))
+            return
+        }
+        var marker = item.marker
+        if let number = Int(marker.dropLast()), let last = marker.last, marker.count > 1 || last == "." || last == ")" {
+            marker = "\(number + 1)\(last)"
+        }
+        let task = item.task.isEmpty ? "" : " [ ]"
+        insertText("\n" + item.prefix + marker + task + item.gap, replacementRange: selection)
+    }
+
+    /// Tab and Shift-Tab move a list item in and out.
+    override func insertTab(_ sender: Any?) {
+        if !shiftItems(by: 1) { super.insertTab(sender) }
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        if !shiftItems(by: -1) { super.insertBacktab(sender) }
+    }
+
+    private func shiftItems(by direction: Int) -> Bool {
+        guard let editor, editor.isMarkdown, !editor.isCode(at: selectedRange().location) else { return false }
+        let string = self.string as NSString
+        let selection = selectedRange()
+        let lines = string.lineRange(for: selection)
+        var pieces: [String] = []
+        var any = false
+        string.enumerateSubstrings(in: lines, options: [.byLines, .substringNotRequired]) { _, range, enclosing, _ in
+            let line = string.substring(with: enclosing)
+            let isItem = self.item(in: string.substring(with: range)).map { !$0.marker.isEmpty } ?? false
+            if !isItem {
+                pieces.append(line)
+            } else if direction > 0 {
+                any = true
+                pieces.append("  " + line)
+            } else {
+                let spaces = min(2, line.prefix { $0 == " " }.count)
+                if line.hasPrefix("\t") {
+                    any = true
+                    pieces.append(String(line.dropFirst()))
+                } else {
+                    any = any || spaces > 0
+                    pieces.append(String(line.dropFirst(spaces)))
+                }
+            }
+        }
+        guard any else { return selection.length == 0 ? false : direction < 0 }
+        let replacement = pieces.joined()
+        let delta = (replacement as NSString).length - lines.length
+        insertText(replacement, replacementRange: lines)
+        if selection.length == 0 {
+            setSelectedRange(NSRange(location: max(lines.location, selection.location + delta), length: 0))
+        } else {
+            setSelectedRange(NSRange(location: lines.location, length: (replacement as NSString).length))
+        }
+        return true
+    }
+
+    // MARK: Clicking
+
+    override func mouseDown(with event: NSEvent) {
+        guard let editor else { return super.mouseDown(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        let index = characterIndexForInsertion(at: point)
+        if event.modifierFlags.contains(.command), let link = editor.link(at: index) {
+            editor.delegate?.editor(editor, follow: link, inNewTab: event.modifierFlags.contains(.shift))
+            return
+        }
+        // A click on a task box ticks it.
+        if event.clickCount == 1, let marker = editor.taskMarker(at: index) ?? editor.taskMarker(at: max(0, index - 1)) {
+            let box = marker.range
+            let rect = firstRect(forCharacterRange: box, actualRange: nil)
+            let inWindow = window?.convertFromScreen(rect) ?? .zero
+            if convert(inWindow, from: nil).insetBy(dx: -3, dy: -2).contains(point) {
+                let selection = selectedRange()
+                editor.replace(box, with: marker.flags != 0 ? "[ ]" : "[x]", select: selection)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    // MARK: Formatting
+
+    /// Wraps the selection in `mark`, or takes the marks away if it has them.
+    private func toggleWrap(_ mark: String) {
+        guard let editor, editor.isMarkdown else { return }
+        let string = self.string as NSString
+        let selection = selectedRange()
+        let length = (mark as NSString).length
+        let before = NSRange(location: selection.location - length, length: length)
+        let after = NSRange(location: selection.upperBound, length: length)
+        if before.location >= 0, after.upperBound <= string.length, string.substring(with: before) == mark,
+            string.substring(with: after) == mark
+        {
+            let whole = NSRange(location: before.location, length: selection.length + 2 * length)
+            insertText(string.substring(with: selection), replacementRange: whole)
+            setSelectedRange(NSRange(location: before.location, length: selection.length))
+            return
+        }
+        let inner = string.substring(with: selection)
+        insertText(mark + inner + mark, replacementRange: selection)
+        setSelectedRange(NSRange(location: selection.location + length, length: selection.length))
+    }
+
+    @objc func toggleBold(_ sender: Any?) { toggleWrap("**") }
+    @objc func toggleItalic(_ sender: Any?) { toggleWrap("*") }
+    @objc func toggleStrikethrough(_ sender: Any?) { toggleWrap("~~") }
+    @objc func toggleInlineCode(_ sender: Any?) { toggleWrap("`") }
+    @objc func toggleHighlight(_ sender: Any?) { toggleWrap("==") }
+
+    @objc func insertLink(_ sender: Any?) {
+        guard let editor, editor.isMarkdown else { return }
+        let selection = selectedRange()
+        let inner = (string as NSString).substring(with: selection)
+        insertText("[\(inner)](url)", replacementRange: selection)
+        // The placeholder is selected, ready to be typed over.
+        setSelectedRange(NSRange(location: selection.location + selection.length + 3, length: 3))
+    }
+
+    /// Sets the heading level of the selected lines; the menu item's tag is
+    /// the level, and 0 makes them plain text.
+    @objc func setHeadingLevel(_ sender: NSMenuItem) {
+        setLinePrefix(sender.tag > 0 ? String(repeating: "#", count: sender.tag) + " " : "", replacing: #"^#{1,6}[ \t]+"#)
+    }
+
+    @objc func toggleBulletList(_ sender: Any?) { setLinePrefix("- ", replacing: #"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?"#, toggles: true) }
+    @objc func toggleTaskList(_ sender: Any?) { setLinePrefix("- [ ] ", replacing: #"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?"#, toggles: true) }
+    @objc func toggleQuote(_ sender: Any?) { setLinePrefix("> ", replacing: #"^>[ \t]?"#, toggles: true) }
+
+    /// Gives the selected lines `prefix` in place of what `pattern` matches at
+    /// their start. With `toggles`, lines that all have it lose it.
+    private func setLinePrefix(_ prefix: String, replacing pattern: String, toggles: Bool = false) {
+        guard let editor, editor.isMarkdown, let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        let string = self.string as NSString
+        let lines = string.lineRange(for: selectedRange())
+        var texts: [(line: String, ending: String)] = []
+        string.enumerateSubstrings(in: lines, options: .byLines) { line, range, enclosing, _ in
+            texts.append((line ?? "", string.substring(with: NSRange(location: range.upperBound, length: enclosing.upperBound - range.upperBound))))
+        }
+        if texts.isEmpty { texts = [("", "")] }
+        let allHave = toggles && texts.allSatisfy { $0.line.hasPrefix(prefix) }
+        let replacement = texts.map { text -> String in
+            let range = NSRange(location: 0, length: (text.line as NSString).length)
+            let bare = regex.stringByReplacingMatches(in: text.line, range: range, withTemplate: "")
+            return (allHave ? bare : prefix + bare) + text.ending
+        }.joined()
+        insertText(replacement, replacementRange: lines)
+        let end = lines.location + (replacement as NSString).length - (texts.last?.ending as NSString? ?? "").length
+        setSelectedRange(NSRange(location: end, length: 0))
+    }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleStrikethrough(_:)),
+            #selector(toggleInlineCode(_:)), #selector(toggleHighlight(_:)), #selector(insertLink(_:)),
+            #selector(setHeadingLevel(_:)), #selector(toggleBulletList(_:)), #selector(toggleTaskList(_:)),
+            #selector(toggleQuote(_:)):
+            return editor?.isMarkdown == true
+        default:
+            return super.validateMenuItem(item)
+        }
+    }
+}

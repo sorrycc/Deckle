@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="katex.min.css">
+<script src="katex.min.js"></script>
+<script src="mermaid.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  #out { display: inline-block; padding: 4px 2px; font-family: -apple-system, sans-serif; }
+  #out.inline { padding: 0 1px; }
+  #out svg { display: block; }
+  .error { color: #e5484d; font: 12px ui-monospace, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+  let count = 0;
+  // Renders math or a diagram into #out and returns its size in points.
+  async function render(kind, source, dark, color, size, width) {
+    const out = document.getElementById("out");
+    out.className = kind === "inline" ? "inline" : "";
+    out.innerHTML = "";
+    out.style.color = color;
+    out.style.fontSize = size + "px";
+    out.style.maxWidth = width + "px";
+    try {
+      if (kind === "mermaid") {
+        mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict", fontFamily: "-apple-system, sans-serif" });
+        const { svg } = await mermaid.render("diagram" + (count++), source);
+        out.innerHTML = svg;
+        const element = out.querySelector("svg");
+        if (element) {
+          element.style.maxWidth = width + "px";
+          element.style.height = "auto";
+        }
+      } else {
+        katex.render(source, out, { displayMode: kind === "math", throwOnError: false });
+      }
+    } catch (error) {
+      out.innerHTML = "";
+      const message = document.createElement("div");
+      message.className = "error";
+      message.textContent = String(error && error.message || error);
+      out.appendChild(message);
+    }
+    await document.fonts.ready;
+    const rect = out.getBoundingClientRect();
+    return { width: Math.ceil(rect.width), height: Math.ceil(rect.height) };
+  }
+</script>
+</body>
+</html>
