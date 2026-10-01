@@ -10,9 +10,9 @@ A fast Markdown editor for macOS, with a native AppKit interface and a Rust core
 
 - **Live-styled Markdown.** Headings, emphasis, links, code and quotes are styled as you type. The syntax around them is hidden except where the selection is. List markers become bullets and task boxes, and code fences keep their place but show only while you edit the block.
 - **Rich blocks in place.** Images, tables, math (KaTeX) and Mermaid diagrams are drawn in place of their source and turn back into source when the insertion point enters them.
-- **Extended syntax.** Wikilinks, footnotes, tasks, callouts, superscript and subscript, `==highlights==`, front matter and highlighted code in about 20 languages.
-- **Workspaces.** Any folder is a workspace: a file tree with starred files, a note list with excerpts and thumbnails, and tabs with back and forward.
-- **Quick open, search and commands.** ⌘P opens any file, ⇧⌘F searches the text of every note, and ⇧⌘P runs any menu command.
+- **Extended syntax.** Wikilinks, footnotes, tasks, callouts, superscript and subscript, `==highlights==`, and highlighted code in about 20 languages. Front matter folds into a small block of properties above the note.
+- **Workspaces.** Any folder is a workspace: a file tree with starred files, a note list with two-line excerpts and thumbnails, and tabs with back and forward. Image and code files open in tabs of their own.
+- **Quick open, search and commands.** ⌘P opens any file, ⇧⌘F searches the text of every note and shows each match as it reads, and ⇧⌘P runs any menu command.
 - **Links both ways.** ⌘-click a link to follow it. A `[[link]]` to a note that doesn't exist creates it, and each note lists the notes that link to it.
 - **Typing helpers.** Lists and quotes continue on Return, `/` at the start of a line inserts a block, and `[[` completes note names. Pasted or dropped images are saved next to the note.
 - **Themes.** System, plus nine palettes in light and dark, with the font, size, line height and line width of your choice.
@@ -41,7 +41,7 @@ Measured on the development machine with a release build:
 | | |
 |---|---|
 | Typing in the middle of a 1 MB note | 2 ms median, 6 ms worst per keystroke, including layout and drawing |
-| Window shown after launch | about 310 ms warm; over a second on the first launch after a build, while macOS checks the new binary |
+| Window shown after launch | about 360 ms warm; over a second on the first launch after a build, while macOS checks the new binary |
 | 50,000-note workspace | file list ready in 0.4 s, full index in 2.1 s, both on background threads |
 
 `build/Quill.app/Contents/MacOS/Quill -timing YES` prints launch and indexing times. `-benchmark 300` types 300 characters into the open note and prints the time each took. See [Usage](docs/usage.md) for the other launch arguments.
