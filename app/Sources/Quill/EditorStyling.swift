@@ -111,12 +111,12 @@ final class Styler {
     }
 
     /// The part of a task's line whose syntax shows together: from the start
-    /// of the item through its box and the space after. The marker's element
-    /// is the whole line, but a task reveals only around its prefix, so
-    /// editing the text never moves it.
+    /// of the item through its box. The marker's element is the whole line,
+    /// but a task reveals only around its prefix, so editing the text never
+    /// moves it; the start of the text, one past the box, is outside.
     static func taskPrefix(of marker: QuillSpan, task: QuillSpan) -> NSRange {
         let start = Int(marker.elem_start)
-        return NSRange(location: start, length: min(Int(task.end) + 1, Int(task.elem_end)) - start)
+        return NSRange(location: start, length: min(Int(task.end), Int(task.elem_end)) - start)
     }
 
     private func trait(_ trait: NSFontDescriptor.SymbolicTraits, of font: NSFont) -> NSFont {
@@ -141,6 +141,9 @@ final class Styler {
                 .font, value: NSFontManager.shared.convert(font, toSize: (font.pointSize * scale).rounded()), range: sub)
         }
     }
+
+    /// The type of front matter: smaller than the note's code.
+    private var smallMono: NSFont { mono(for: NSFontManager.shared.convert(fonts.body, toSize: (fonts.size * 0.9).rounded())) }
 
     private func mono(for font: NSFont) -> NSFont {
         let key = "mono|\(font.pointSize)"
@@ -185,11 +188,22 @@ final class Styler {
                 lineFont = fonts.mono
                 tight = true
                 let isFence = span.flags & UInt16(QuillCodeFenceOpen | QuillCodeFenceClose) != 0
+                let revealed = isRevealed(span.element)
                 // A fence keeps its line, as the block's padding, but shows
                 // its text only while the selection is in the block.
-                let fenceColor = isCode && !isRevealed(span.element) ? NSColor.clear : theme.syntax
+                let fenceColor = isCode && !revealed ? NSColor.clear : theme.syntax
+                if !isCode {
+                    // Front matter is a small block of properties above the
+                    // note, in smaller type, its fences folded to a sliver
+                    // of padding until the selection is in it.
+                    lineFont = smallMono
+                    if isFence && !revealed { decoration.lineHeight = 5 }
+                }
                 text.addAttributes(
                     [.font: lineFont, .foregroundColor: isFence || !isCode ? fenceColor : theme.text], range: full)
+                if !isCode && isFence && !revealed {
+                    text.addAttributes([.font: hiddenFont, .foregroundColor: NSColor.clear], range: full)
+                }
                 decoration.block = isCode ? .code : .frontMatter
                 decoration.blockFirst = span.start == span.elem_start
                 decoration.blockLast = span.end == span.elem_end
@@ -226,7 +240,12 @@ final class Styler {
             let indent = CGFloat(decoration.quoteDepth) * Styler.quoteIndent + (decoration.callout != 0 ? 10 : 0)
             style.firstLineHeadIndent += indent
             style.headIndent += indent
-            if decoration.callout != 0 { style.tailIndent = -Styler.blockPadding }
+            if decoration.callout != 0 {
+                style.tailIndent = -Styler.blockPadding
+                // The same room below the last line as above the first.
+                if decoration.calloutFirst { style.paragraphSpacingBefore += 3 }
+                if decoration.calloutLast { style.paragraphSpacing += 5 }
+            }
         }
 
         var taskChecked: NSRange?
@@ -283,6 +302,8 @@ final class Styler {
                 // Wrapped lines of the item line up with its text.
                 var prefixEnd = min(content.upperBound, r.upperBound + 1)
                 if let task, let t = local(task) {
+                    // The box is measured in the font it is drawn with.
+                    text.addAttribute(.font, value: mono(for: lineFont), range: t)
                     prefixEnd = min(content.upperBound, t.upperBound + 1)
                 }
                 let prefix = text.attributedSubstring(from: NSRange(location: 0, length: prefixEnd))

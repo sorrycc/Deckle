@@ -61,7 +61,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     private let outline = NSOutlineView()
     private let scrollView = NSScrollView()
     private let switcher = NSPopUpButton(frame: .zero, pullsDown: true)
-    private let emptyView = EmptyStateView(title: "Empty Workspace", detail: "Press ⌘N to write the first note, or drop files here.")
+    private let emptyView = EmptyStateView(title: "No Files", detail: "Drop files here, or press ⌘N.")
     /// Loaded folders by path, to find the node a change belongs to.
     private var folders: [String: FileNode] = [:]
     private var isSelectingProgrammatically = false
@@ -134,6 +134,12 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         ])
         view = container
         rebuildSwitcher()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // The one column is as wide as the sidebar, so names get its room.
+        outline.sizeLastColumnToFit()
     }
 
     override func viewDidLoad() {
@@ -298,7 +304,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         let cell = NSTableCellView()
         cell.identifier = id
         let field = NSTextField(labelWithString: "")
-        field.lineBreakMode = .byTruncatingMiddle
+        field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(field)
         cell.textField = field

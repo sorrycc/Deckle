@@ -18,7 +18,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
     private let titleLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
     private let sortButton = NSButton()
-    private let emptyView = EmptyStateView(title: "No Notes", detail: "Press ⌘N to write one.")
+    private let emptyView = EmptyStateView(title: "No Notes", detail: "⌘N writes the first one.")
     private var count = 0
     /// Rows read from the core so far, by page.
     private var pages: [Int: [NoteSummary]] = [:]
@@ -158,7 +158,23 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         isSelectingProgrammatically = true
         restoreSelection()
         isSelectingProgrammatically = false
-        if table.selectedRow >= 0 { table.scrollRowToVisible(table.selectedRow) }
+        if table.selectedRow >= 0 { reveal(row: table.selectedRow) }
+    }
+
+    /// Scrolls `row` into view, with whole rows at the top of the list.
+    private func reveal(row: Int) {
+        table.scrollRowToVisible(row)
+        let clip = scrollView.contentView
+        let rowRect = table.rect(ofRow: row)
+        let top = clip.bounds.origin.y
+        // Down to a row boundary, unless that would push the row off the
+        // bottom; then up to the next one.
+        var snapped = (top / NoteCell.height).rounded(.down) * NoteCell.height
+        if rowRect.maxY > snapped + clip.bounds.height { snapped = (top / NoteCell.height).rounded(.up) * NoteCell.height }
+        snapped = max(0, min(snapped, max(0, table.bounds.height - clip.bounds.height)))
+        guard snapped != top else { return }
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: snapped))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     private func restoreSelection() {

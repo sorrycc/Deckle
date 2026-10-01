@@ -261,17 +261,20 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
             rows.append(Row(
                 icon: NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil),
                 title: NSAttributedString(string: file.title, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]),
-                detail: nil, trailing: "\(file.count)", isHeader: true,
+                detail: nil, trailing: file.count == 1 ? "1 match" : "\(file.count) matches", isHeader: true,
                 run: { [weak controller] newTab in controller?.open(url, inNewTab: newTab) }))
             for match in file.matches {
                 let text = NSMutableAttributedString(string: match.text, attributes: [
                     .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor,
                 ])
                 let hit = NSIntersectionRange(NSRange(location: match.column, length: match.length), NSRange(location: 0, length: text.length))
-                text.addAttributes([.foregroundColor: NSColor.labelColor, .backgroundColor: NSColor.findHighlightColor.withAlphaComponent(0.45)], range: hit)
+                text.addAttributes([
+                    .foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                    .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.18),
+                ], range: hit)
                 let selection = NSRange(location: match.offset, length: match.length)
                 rows.append(Row(
-                    icon: nil, title: text, detail: nil, trailing: "\(match.line)",
+                    icon: nil, title: text, detail: nil, trailing: "Ln \(match.line)",
                     run: { [weak controller] newTab in controller?.open(url, inNewTab: newTab, selecting: selection) }))
             }
         }
@@ -297,10 +300,10 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
     /// Every command in the menu bar that can run now.
     private func commandRows(_ query: String) -> [Row] {
         var found: [(Int, Row)] = []
-        func walk(_ menu: NSMenu, path: String) {
-            for item in menu.items where !item.isSeparatorItem && !item.isHidden {
+        func walk(_ items: [NSMenuItem], path: String) {
+            for item in items where !item.isSeparatorItem && !item.isHidden {
                 if let submenu = item.submenu {
-                    walk(submenu, path: menu === NSApp.mainMenu ? item.title : "\(path) › \(item.title)")
+                    walk(submenu.items, path: path.isEmpty ? item.title : "\(path) › \(item.title)")
                     continue
                 }
                 guard let action = item.action, action != #selector(NSApplication.terminate(_:)) else { continue }
@@ -320,7 +323,11 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
                     })))
             }
         }
-        if let menu = NSApp.mainMenu { walk(menu, path: "") }
+        if let menu = NSApp.mainMenu {
+            // The app menu's commands come last: About and Hide are rarely
+            // what is wanted.
+            walk(Array(menu.items.dropFirst()) + Array(menu.items.prefix(1)), path: "")
+        }
         return found.enumerated().sorted { a, b in a.element.0 != b.element.0 ? a.element.0 > b.element.0 : a.offset < b.offset }
             .map(\.element.1)
     }
@@ -449,7 +456,7 @@ final class PaletteCell: NSTableCellView {
         detail.lineBreakMode = .byTruncatingMiddle
         detail.maximumNumberOfLines = 1
         trailing.font = .systemFont(ofSize: 11)
-        trailing.textColor = .tertiaryLabelColor
+        trailing.textColor = .secondaryLabelColor
         trailing.alignment = .right
         for view in [icon, title, detail, trailing] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -459,7 +466,7 @@ final class PaletteCell: NSTableCellView {
         detail.setContentCompressionResistancePriority(.init(200), for: .horizontal)
         trailing.setContentCompressionResistancePriority(.required, for: .horizontal)
         titleLeading = title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10)
-        titleLeadingNoIcon = title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 38)
+        titleLeadingNoIcon = title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14)
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),

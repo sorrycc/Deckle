@@ -163,9 +163,9 @@ enum SlashCommands {
     }
 
     static let all: [CompletionPopup.Item] = [
-        .init(symbol: "textformat.size.larger", title: "Heading 1", detail: "#", apply: insert("# ")),
-        .init(symbol: "textformat.size", title: "Heading 2", detail: "##", apply: insert("## ")),
-        .init(symbol: "textformat.size.smaller", title: "Heading 3", detail: "###", apply: insert("### ")),
+        .init(symbol: "textformat", title: "Heading 1", detail: "#", apply: insert("# ")),
+        .init(symbol: "textformat", title: "Heading 2", detail: "##", apply: insert("## ")),
+        .init(symbol: "textformat", title: "Heading 3", detail: "###", apply: insert("### ")),
         .init(symbol: "list.bullet", title: "Bulleted List", detail: "-", apply: insert("- ")),
         .init(symbol: "list.number", title: "Numbered List", detail: "1.", apply: insert("1. ")),
         .init(symbol: "checklist", title: "Task", detail: "- [ ]", apply: insert("- [ ] ")),

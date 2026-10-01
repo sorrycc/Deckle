@@ -188,8 +188,11 @@ final class ImagePreview: NSView {
         pixelSize = image?.representations.first.map { NSSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? .zero
         super.init(frame: .zero)
         imageView.image = image
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.frame = NSRect(origin: .zero, size: image?.size ?? .zero)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        // One image pixel to one screen pixel, so the picture stays sharp.
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let size = pixelSize.width > 0 ? NSSize(width: pixelSize.width / scale, height: pixelSize.height / scale) : image?.size ?? .zero
+        imageView.frame = NSRect(origin: .zero, size: size)
         scrollView.contentView = CenteringClipView()
         scrollView.documentView = imageView
         scrollView.allowsMagnification = true

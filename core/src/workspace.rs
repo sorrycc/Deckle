@@ -833,7 +833,8 @@ impl Workspace {
                 let mut targets = Vec::new();
                 links_in(line, &mut targets);
                 if targets.iter().any(|l| keys.contains(l) || *l == rel || rel.ends_with(&format!("/{l}"))) {
-                    lines.push(json!({ "line": number + 1, "text": preview(line.trim(), 0).0, "offset": offset }));
+                    let shown: String = plain(strip_block_prefix(line)).chars().take(160).collect();
+                    lines.push(json!({ "line": number + 1, "text": shown, "offset": offset }));
                 }
                 offset += line.chars().map(|c| c.len_utf16() as u32).sum::<u32>() + 1;
                 if lines.len() >= 5 {
@@ -844,6 +845,40 @@ impl Workspace {
         }
         Value::Array(rows).to_string()
     }
+}
+
+/// `line` as it reads around the `len` bytes at `at`: block and inline
+/// syntax taken out on either side, the matched text itself kept as it is.
+/// Returns the text, at most about 160 characters, and the UTF-16 offset of
+/// the match within it.
+fn plain_preview(line: &str, at: usize, len: usize) -> (String, u32) {
+    // The block prefix goes when the match isn't in it.
+    let trimmed = line.trim_start();
+    let stripped = strip_block_prefix(trimmed);
+    let removed = line.len() - stripped.len();
+    let (line, at) = if at >= removed { (stripped, at - removed) } else { (trimmed, at.saturating_sub(line.len() - trimmed.len())) };
+    let end = at + len;
+    if !line.is_char_boundary(at) || !line.is_char_boundary(end.min(line.len())) || end > line.len() {
+        return preview(line, at.min(line.len()));
+    }
+    let mut start = at.saturating_sub(60);
+    while !line.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut stop = (end + 100).min(line.len());
+    while !line.is_char_boundary(stop) {
+        stop += 1;
+    }
+    let (before, hit, after) = (&line[start..at], &line[at..end], &line[end..stop]);
+    // plain() trims its ends, so a mark stands in for the match while each
+    // side is cleaned, and the space beside the match survives.
+    const MARK: char = '\u{1}';
+    let mut shown = if start > 0 { "…".to_string() } else { String::new() };
+    shown.push_str(plain(&format!("{before}{MARK}")).trim_end_matches(MARK));
+    let column = shown.chars().map(|c| c.len_utf16() as u32).sum::<u32>();
+    shown.push_str(hit);
+    shown.push_str(plain(&format!("{MARK}{after}")).trim_start_matches(MARK));
+    (shown, column)
 }
 
 /// At most 160 characters of `line` around byte `at`, and the UTF-16 offset
@@ -888,10 +923,49 @@ fn search_file(text: &str, finder: &memchr::memmem::Finder, sensitive: bool, pat
         counted = at;
         let line_end = text[at..].find('\n').map_or(text.len(), |i| at + i);
         let line = &text[line_start..line_end];
-        let lead = line.len() - line.trim_start().len();
-        let (shown, column) = preview(line.trim_start(), (at - line_start).saturating_sub(lead));
+        let (shown, column) = plain_preview(line, at - line_start, finder.needle().len());
         let needle_units = text.get(at..at + finder.needle().len()).map_or(0, |s| s.chars().map(|c| c.len_utf16() as u32).sum::<u32>());
         matches.push(json!({ "line": line_number, "text": shown, "column": column, "length": needle_units, "offset": units }));
     }
     (count > 0).then(|| json!({ "path": path.to_string_lossy(), "title": title, "count": count, "matches": matches }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn previews_read_plainly_around_the_match() {
+        let line = "- [ ] the section about **friction** needs [[Project Plan|a pass]].";
+        let at = line.find("friction").unwrap();
+        let (text, column) = plain_preview(line, at, "friction".len());
+        assert_eq!(text, "the section about friction needs a pass.");
+        assert_eq!(&text[column as usize..column as usize + 8], "friction");
+
+        // The block prefix goes, unless the match is in it.
+        let (text, column) = plain_preview("## Plan of record", 3, 4);
+        assert_eq!(text, "Plan of record");
+        assert_eq!(column, 0);
+        let (text, column) = plain_preview("## Plan of record", 0, 2);
+        assert_eq!(text, "## Plan of record");
+        assert_eq!(column, 0);
+
+        // A match inside a wikilink's target, and a long line cut short.
+        let long = format!("{}[[Note 42]] tail", "word ".repeat(40));
+        let at = long.find("42").unwrap();
+        let (text, column) = plain_preview(&long, at, 2);
+        assert!(text.starts_with('…'), "{text}");
+        assert!(text.ends_with("Note 42 tail"), "{text}");
+        assert_eq!(&text[column as usize + 2..column as usize + 4], "42");
+    }
+
+    #[test]
+    fn titles_sort_naturally() {
+        use std::cmp::Ordering;
+        assert_eq!(natural_cmp("Note 2", "Note 10"), Ordering::Less);
+        assert_eq!(natural_cmp("note 2", "Note 2"), Ordering::Equal);
+        assert_eq!(natural_cmp("Note 002", "Note 2"), Ordering::Equal);
+        assert_eq!(natural_cmp("a", "ab"), Ordering::Less);
+        assert_eq!(natural_cmp("3 things", "2026-09-28"), Ordering::Less);
+    }
 }

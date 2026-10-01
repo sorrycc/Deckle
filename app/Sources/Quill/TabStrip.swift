@@ -328,6 +328,8 @@ final class TabItemView: NSView {
         if titleLabel.stringValue != title {
             titleLabel.stringValue = title
             toolTip = title
+            // A file name keeps its extension when cut short.
+            titleLabel.lineBreakMode = title.contains(".") ? .byTruncatingMiddle : .byTruncatingTail
         }
         icon.image = tab.icon
         icon.contentTintColor = .secondaryLabelColor

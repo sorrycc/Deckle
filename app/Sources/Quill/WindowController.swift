@@ -471,7 +471,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     /// Gives the tabs the room the editor's column leaves them.
     private func fitTabStrip() {
         guard pane.isViewLoaded else { return }
-        tabStripWidth.constant = max(140, pane.view.frame.width - 210)
+        tabStripWidth.constant = max(140, pane.view.frame.width - 160)
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
