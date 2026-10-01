@@ -32,7 +32,9 @@ Markdown's syntax shows only around the selection: `-` becomes a bullet, `[ ]` a
 - Return continues a list or quote; Return on an empty item ends it. Tab and Shift-Tab indent and outdent list items.
 - `/` at the start of a line opens a menu of blocks to insert.
 - `[[` completes the names of notes.
-- ⌘-click follows a link, a wikilink or a footnote. A wikilink to a missing note creates it beside the current note.
+- ⌘-click follows a link, a wikilink or a footnote. Hovering over a link shows where it goes, and with ⌘ held the pointer becomes a hand. A wikilink to a missing note creates it beside the current note.
+- Hovering over a code block shows a Copy button at its corner.
+- A long note scrolls past its end, so its last lines can be read mid-screen. A click in that room puts the insertion point at the end.
 - Pasting or dropping an image saves it in an `assets` folder beside the note and links it.
 
 ## Finding things
@@ -71,6 +73,7 @@ For trying the app from a script:
 | `-select <loc,len>` | Selects this range of the open file, in UTF-16 units |
 | `-scroll <fraction>` | Scrolls this far down the open file, from 0 to 1 |
 | `-type <text>` | Types this text at the selection; `\n` is a line break |
+| `-hover <index>` | Moves the pointer over this character; `-command YES` holds ⌘ |
 | `-palette files\|search\|commands\|headings\|backlinks` | Opens a panel; `-query <text>` fills it in |
 | `-settings YES` | Opens the Settings window, which a snapshot pictures as a panel |
 | `-snapshot <png>` | Writes a picture of the window, and of any panel as `<name>-panel.png`, then quits |

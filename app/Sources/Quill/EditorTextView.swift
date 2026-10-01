@@ -30,6 +30,41 @@ final class EditorTextView: NSTextView {
         return item.marker.isEmpty && !item.prefix.contains(">") ? nil : item
     }
 
+    // MARK: Size
+
+    /// Room after the text, so the last lines of a long file can scroll up
+    /// to eye level. The scroll view's insets can't give it: text under
+    /// them is never laid out.
+    var pastEnd: CGFloat = 0 {
+        didSet {
+            if pastEnd != oldValue { setFrameSize(NSSize(width: frame.width, height: contentHeight)) }
+        }
+    }
+    /// The height the text asked for, and the height it was given.
+    private var contentHeight: CGFloat = 0
+    private var paddedHeight: CGFloat = -1
+
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        // The text view sizes itself to its text; a width change hands the
+        // padded height back, which is not a new content height.
+        if size.height != paddedHeight { contentHeight = size.height }
+        size.height = contentHeight + pastEnd
+        paddedHeight = size.height
+        super.setFrameSize(size)
+    }
+
+    /// A click in the room after the text puts the insertion point at the end.
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if pastEnd > 0, point.y > frame.height - pastEnd + textContainerInset.height, event.clickCount == 1 {
+            window?.makeFirstResponder(self)
+            setSelectedRange(NSRange(location: (string as NSString).length, length: 0))
+            return
+        }
+        clickDown(with: event)
+    }
+
     // MARK: Typing
 
     /// The completion list takes the arrow keys, Return and Escape while open.
@@ -138,9 +173,43 @@ final class EditorTextView: NSTextView {
         return true
     }
 
+    // MARK: Pointing
+
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        editor?.pointerMoved(to: convert(event.locationInWindow, from: nil), flags: event.modifierFlags)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        editor?.pointerLeft()
+    }
+
+    /// Holding ⌘ over a link shows that a click would follow it.
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        guard let window else { return }
+        editor?.pointerMoved(to: convert(window.mouseLocationOutsideOfEventStream, from: nil), flags: event.modifierFlags)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if editor?.wantsPointingHand == true { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
+    }
+
     // MARK: Clicking
 
-    override func mouseDown(with event: NSEvent) {
+    private func clickDown(with event: NSEvent) {
         guard let editor else { return super.mouseDown(with: event) }
         let point = convert(event.locationInWindow, from: nil)
         let index = characterIndexForInsertion(at: point)

@@ -74,18 +74,33 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         table.selectRowIndexes([0], byExtendingSelection: false)
         table.scrollRowToVisible(0)
         let height = CGFloat(min(items.count, 9)) * Self.rowHeight + 10
-        let caret = editor.textView.firstRect(forCharacterRange: NSRange(location: trigger.location, length: 0), actualRange: nil)
-        var frame = NSRect(x: caret.minX - 10, y: caret.minY - height - 6, width: Self.width, height: height)
-        // Above the line when there is no room below it.
-        if let screen = window.screen, frame.minY < screen.visibleFrame.minY { frame.origin.y = caret.maxY + 6 }
         panel.appearance = window.appearance
-        panel.setFrame(frame, display: true)
+        panel.setFrame(frame(height: height, in: editor), display: true)
         // Over the editor's window, which may not be the one it was over.
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
             window.addChildWindow(panel, ordered: .above)
         }
         panel.orderFront(nil)
+    }
+
+    /// Under the trigger's line, or above it when there is no room below.
+    private func frame(height: CGFloat, in editor: EditorView) -> NSRect {
+        let caret = editor.textView.firstRect(forCharacterRange: NSRange(location: trigger.location, length: 0), actualRange: nil)
+        var frame = NSRect(x: caret.minX - 10, y: caret.minY - height - 6, width: Self.width, height: height)
+        if let screen = editor.window?.screen, frame.minY < screen.visibleFrame.minY { frame.origin.y = caret.maxY + 6 }
+        return frame
+    }
+
+    /// Follows the trigger after its editor scrolled, as when a new line at
+    /// the bottom of a note brings the view down. The list goes away once
+    /// the trigger is out of view.
+    func reposition(for editor: EditorView) {
+        guard isShown(for: editor), let panel, let window = editor.window else { return }
+        let caret = editor.textView.firstRect(forCharacterRange: NSRange(location: trigger.location, length: 0), actualRange: nil)
+        let visible = editor.scrollView.convert(window.convertFromScreen(caret), from: nil)
+        guard caret.height > 0, editor.scrollView.bounds.intersects(visible) else { return close() }
+        panel.setFrame(frame(height: panel.frame.height, in: editor), display: true)
     }
 
     func close() {

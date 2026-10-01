@@ -37,6 +37,16 @@ private func form(_ rows: [(String, NSView)], width: CGFloat = 520) -> NSView {
     grid.columnSpacing = 12
     grid.column(at: 0).xPlacement = .trailing
     grid.rowAlignment = .firstBaseline
+    // A tall control, such as the grid of themes, has no baseline to share:
+    // its label sits level with the top of its first row instead.
+    for (index, (_, control)) in rows.enumerated() where control is NSGridView {
+        let row = grid.row(at: index)
+        row.rowAlignment = .none
+        row.cell(at: 1).yPlacement = .top
+        let label = row.cell(at: 0)
+        label.yPlacement = .none
+        label.customPlacementConstraints = [label.contentView!.topAnchor.constraint(equalTo: control.topAnchor, constant: 10)]
+    }
     grid.translatesAutoresizingMaskIntoConstraints = false
     let container = NSView()
     container.addSubview(grid)

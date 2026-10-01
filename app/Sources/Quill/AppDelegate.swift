@@ -201,6 +201,12 @@ enum Debug {
                 if let text = defaults.string(forKey: "type") {
                     editor.textView.insertText(text.replacingOccurrences(of: "\\n", with: "\n"), replacementRange: editor.textView.selectedRange())
                 }
+                if let hover = defaults.string(forKey: "hover"), let index = Int(hover) {
+                    // The pointer over a character, with ⌘ held if asked.
+                    let rect = editor.textView.firstRect(forCharacterRange: NSRange(location: index, length: 1), actualRange: nil)
+                    let point = editor.textView.convert(editor.textView.window!.convertFromScreen(rect), from: nil)
+                    editor.pointerMoved(to: NSPoint(x: point.midX, y: point.midY), flags: defaults.bool(forKey: "command") ? .command : [])
+                }
             }
             if defaults.bool(forKey: "settings") { (NSApp.delegate as? AppDelegate)?.showSettings(nil) }
             if let palette = defaults.string(forKey: "palette") {

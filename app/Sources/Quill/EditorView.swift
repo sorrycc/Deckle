@@ -123,11 +123,11 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
                 rail.widthAnchor.constraint(equalToConstant: 300),
             ])
             rail.onSelect = { [weak self] heading in self?.reveal(NSRange(location: heading.range.location, length: 0)) }
-            scrollView.contentView.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(
-                self, selector: #selector(scrolled(_:)), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
             scheduleOutline()
         }
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(scrolled(_:)), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         applyAppearance()
         // The elements at the insertion point show their syntax from the
         // start, so moving away from them hides it again.
@@ -139,8 +139,12 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     // MARK: Outline
 
     @objc private func scrolled(_ note: Notification) {
-        completion.close(for: self)
+        completion.reposition(for: self)
         scheduleOutline()
+        // The block under the pointer changed, though the pointer didn't move.
+        if let window, copyButton.superview != nil {
+            pointerMoved(to: textView.convert(window.mouseLocationOutsideOfEventStream, from: nil), flags: NSEvent.modifierFlags)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -216,6 +220,9 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let width = isMarkdown ? Settings.lineWidth : CGFloat.greatestFiniteMagnitude
         let inset = NSSize(width: max(28, ((bounds.width - width) / 2).rounded()), height: 24)
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
+        // Room after the end of a long file, to scroll its last lines up to
+        // eye level.
+        textView.pastEnd = max(0, ((bounds.height - safeAreaInsets.top) * 0.45).rounded() - inset.height)
         // Widgets are sized to the column: a new width lays them out again.
         // That includes the first layout: TextKit asks for paragraphs before
         // the view has a frame, and those hold widgets sized for no width.
@@ -280,6 +287,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         flushStaleStyle()
         updateCompletion()
         scheduleOutline()
+        hideCopyButton()
         isDirty = true
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
@@ -402,6 +410,110 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let before = revealed
         revealed = now
         for element in before + now { restyle(element) }
+    }
+
+    // MARK: Hover
+
+    /// The pointer is over a link with ⌘ held: a click would follow it.
+    private(set) var wantsPointingHand = false
+    private var copyTitleTimer: Timer?
+    /// The code block the Copy button is over.
+    private var hoveredBlock: NSRange?
+    private static let copyImage = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")?
+        .withSymbolConfiguration(.init(pointSize: 10, weight: .medium))
+    private static let copiedImage = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")?
+        .withSymbolConfiguration(.init(pointSize: 10, weight: .bold))
+
+    /// Copies a code block, from its top right corner while the pointer is
+    /// over the block.
+    private lazy var copyButton: NSButton = {
+        let button = NSButton(title: "Copy", image: Self.copyImage ?? NSImage(), target: self, action: #selector(copyBlock(_:)))
+        button.bezelStyle = .glass
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.imagePosition = .imageLeading
+        button.imageHugsTitle = true
+        button.toolTip = "Copy the code"
+        button.sizeToFit()
+        return button
+    }()
+
+    /// The text view's pointer moved to `point`, or the modifier keys changed.
+    func pointerMoved(to point: NSPoint, flags: NSEvent.ModifierFlags) {
+        let index = textView.characterIndexForInsertion(at: point)
+        let hand = flags.contains(.command) && isMarkdown && textView.bounds.contains(point) && link(at: index) != nil
+        if hand != wantsPointingHand {
+            wantsPointingHand = hand
+            (hand ? NSCursor.pointingHand : NSCursor.iBeam).set()
+        }
+        guard isMarkdown, textView.bounds.contains(point), let block = codeBlock(at: index), let band = blockBand(block),
+            point.x >= band.minX, point.x <= band.maxX, point.y >= band.minY
+        else { return hideCopyButton() }
+        if hoveredBlock != block {
+            hoveredBlock = block
+            resetCopyTitle()
+        }
+        let size = copyButton.frame.size
+        copyButton.frame.origin = NSPoint(x: (band.maxX - size.width - 8).rounded(), y: (band.minY + (band.lineHeight - size.height) / 2).rounded())
+        if copyButton.superview == nil { textView.addSubview(copyButton) }
+    }
+
+    func pointerLeft() {
+        if wantsPointingHand {
+            wantsPointingHand = false
+            NSCursor.iBeam.set()
+        }
+        hideCopyButton()
+    }
+
+    private func hideCopyButton() {
+        hoveredBlock = nil
+        if copyButton.superview != nil { copyButton.removeFromSuperview() }
+    }
+
+    /// The code block, drawn as code, that the character at `index` is in.
+    private func codeBlock(at index: Int) -> NSRange? {
+        guard storage.length > 0 else { return nil }
+        let string = storage.string as NSString
+        let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
+        return core.spans(in: lines).first {
+            $0.kindValue == QuillCodeBlock && $0.flags & UInt16(QuillCodeDiagram | QuillCodeMath) == 0
+        }?.element
+    }
+
+    /// Where a block's first line is drawn, in the text view: its band across
+    /// the column, and the height of the line.
+    private func blockBand(_ element: NSRange) -> (minX: CGFloat, maxX: CGFloat, minY: CGFloat, lineHeight: CGFloat)? {
+        guard let layoutManager = textView.textLayoutManager, let container = layoutManager.textContainer,
+            let location = contentStorage.location(contentStorage.documentRange.location, offsetBy: element.location),
+            let fragment = layoutManager.textLayoutFragment(for: location)
+        else { return nil }
+        let origin = textView.textContainerOrigin
+        let frame = fragment.layoutFragmentFrame
+        let lineHeight = fragment.textLineFragments.first?.typographicBounds.height ?? frame.height
+        return (origin.x, origin.x + container.size.width, origin.y + frame.minY, lineHeight)
+    }
+
+    @objc private func copyBlock(_ sender: Any?) {
+        guard let block = hoveredBlock, block.upperBound <= storage.length else { return }
+        let code = WidgetStore.fenceSource(of: block, in: self)
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(code, forType: .string)
+        copyButton.title = "Copied"
+        copyButton.image = Self.copiedImage
+        copyButton.sizeToFit()
+        copyTitleTimer?.invalidate()
+        copyTitleTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resetCopyTitle() }
+        }
+    }
+
+    private func resetCopyTitle() {
+        copyTitleTimer?.invalidate()
+        copyButton.title = "Copy"
+        copyButton.image = Self.copyImage
+        copyButton.sizeToFit()
     }
 
     // MARK: Completion

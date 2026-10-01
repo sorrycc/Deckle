@@ -265,6 +265,13 @@ final class Styler {
                     [.font: mono(for: lineFont), .foregroundColor: theme.codeText, .backgroundColor: theme.codeBackground], range: r)
             case QuillLink, QuillWikiLink:
                 text.addAttribute(.foregroundColor, value: theme.link, range: r)
+                // Hovering tells where the link goes; ⌘-click takes it.
+                let target = span.kindValue == QuillLink ? QuillLinkDest : QuillWikiTarget
+                if let destination = spans.first(where: { $0.kindValue == target && $0.element == span.element }),
+                    destination.range.upperBound <= storage.length, destination.range != span.range
+                {
+                    text.addAttribute(.toolTip, value: (storage.string as NSString).substring(with: destination.range), range: r)
+                }
             case QuillImage:
                 text.addAttribute(.foregroundColor, value: theme.secondary, range: r)
             case QuillFootnoteRef:

@@ -8,7 +8,8 @@ final class Tab {
     struct Entry {
         var url: URL
         var selection = NSRange(location: 0, length: 0)
-        var scroll: CGFloat = 0
+        /// Where the view was scrolled to, once it has been left.
+        var scroll: CGFloat?
     }
 
     private(set) var entries: [Entry] = []
@@ -121,8 +122,8 @@ final class Tab {
                 editor.textView.setSelectedRange(NSRange(location: location, length: min(entry.selection.length, length - location)))
                 // The scroll position holds once the text is laid out.
                 DispatchQueue.main.async {
-                    if entry.scroll > 0 {
-                        editor.textView.scroll(NSPoint(x: 0, y: entry.scroll))
+                    if let scroll = entry.scroll {
+                        editor.textView.scroll(NSPoint(x: 0, y: scroll))
                     } else {
                         editor.textView.scrollRangeToVisible(editor.textView.selectedRange())
                     }
