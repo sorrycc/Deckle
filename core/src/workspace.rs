@@ -192,7 +192,7 @@ fn extract(text: &str, path: &Path) -> Note {
                 note.image = resolve_image(src, path);
             }
         }
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || is_rule(trimmed) {
             continue;
         }
         // Headings and images are not part of the excerpt.
@@ -206,7 +206,7 @@ fn extract(text: &str, path: &Path) -> Note {
             continue;
         }
         if excerpt.len() < 320 {
-            let text = plain(trimmed);
+            let text = plain(strip_block_prefix(trimmed));
             if !text.is_empty() {
                 if !excerpt.is_empty() {
                     excerpt.push(' ');
@@ -233,10 +233,49 @@ fn atx_heading(line: &str) -> Option<&str> {
     }
 }
 
-/// `line` as it reads, without Markdown's syntax.
+/// A thematic break, or the underline of a setext heading: `---`, `***`,
+/// `___` or `===`, three or more, with spaces between if any.
+fn is_rule(line: &str) -> bool {
+    let mut marks = line.chars().filter(|c| *c != ' ');
+    let Some(first) = marks.next() else { return false };
+    matches!(first, '-' | '*' | '_' | '=') && marks.clone().count() >= 2 && marks.all(|c| c == first)
+}
+
+/// `line` without the block syntax at its start: heading marks, quote marks,
+/// list markers and task boxes. "2026-09-28" is not a list item, and a
+/// `[x]` is a task box only after a list marker.
+fn strip_block_prefix(mut line: &str) -> &str {
+    let mut after_marker = false;
+    loop {
+        let trimmed = line.trim_start();
+        let bytes = trimmed.as_bytes();
+        let blank = |i: usize| bytes.get(i).is_none_or(|&b| b == b' ' || b == b'\t');
+        let hashes = bytes.iter().take_while(|&&b| b == b'#').count();
+        let was_marker = after_marker;
+        after_marker = false;
+        if (1..=6).contains(&hashes) && blank(hashes) {
+            line = &trimmed[hashes..];
+        } else if bytes.first() == Some(&b'>') {
+            line = &trimmed[1..];
+        } else if matches!(bytes.first(), Some(b'-' | b'*' | b'+')) && blank(1) {
+            line = &trimmed[1..];
+            after_marker = true;
+        } else if let Some(end) = bytes.iter().position(|b| !b.is_ascii_digit()).filter(|&i| i > 0 && i < 10)
+            && matches!(bytes[end], b'.' | b')')
+            && blank(end + 1)
+        {
+            line = &trimmed[end + 1..];
+            after_marker = true;
+        } else if was_marker && bytes.len() >= 3 && bytes[0] == b'[' && matches!(bytes[1], b' ' | b'x' | b'X') && bytes[2] == b']' && blank(3) {
+            line = &trimmed[3..];
+        } else {
+            return trimmed;
+        }
+    }
+}
+
+/// `line` as it reads, without Markdown's inline syntax.
 fn plain(line: &str) -> String {
-    let line = line.trim_start_matches(|c: char| matches!(c, '#' | '>' | '-' | '*' | '+' | ' ') || c.is_ascii_digit());
-    let line = line.trim_start_matches(['.', ')', ' ']);
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars().peekable();
     let mut previous = ' ';
