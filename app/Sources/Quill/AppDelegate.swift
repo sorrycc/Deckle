@@ -2,7 +2,7 @@ import AppKit
 import CQuillCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var windowController: WindowController?
     /// Files and folders handed over before the app finished launching.
     private var pendingURLs: [URL] = []
@@ -26,8 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let last = Settings.lastWorkspace, FileManager.default.fileExists(atPath: last.path) {
             openWorkspace(last)
         } else {
-            chooseWorkspace()
+            showWelcome()
         }
+        if defaults.bool(forKey: "welcome") { showWelcome() }
         Debug.mark("workspace window")
         if let path = defaults.string(forKey: "open") { windowController?.open(URL(fileURLWithPath: path)) }
         Debug.mark("opened file")
@@ -65,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func openWorkspace(_ url: URL, remember: Bool = true) {
+        welcomeController?.close()
         if let current = windowController {
             if current.workspace.url.path == url.resolvingSymlinksInPath().path { return current.showWindow(nil) }
             windowController = nil
@@ -90,11 +92,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if panel.runModal() == .OK, let url = panel.url {
             openWorkspace(url)
         } else if windowController == nil {
-            NSApp.terminate(nil)
+            showWelcome()
         }
     }
 
     @objc func openFolder(_ sender: Any?) { chooseWorkspace() }
+
+    private var welcomeController: WelcomeWindowController?
+
+    /// The window for when there is no workspace: a button to choose a folder
+    /// and the folders opened before.
+    func showWelcome() {
+        let controller = welcomeController ?? WelcomeWindowController()
+        welcomeController = controller
+        controller.onOpen = { [weak self] url in
+            if let url { self?.openWorkspace(url) } else { self?.chooseWorkspace() }
+        }
+        controller.showWindow(nil)
+    }
+
+    /// File > Open Recent lists the workspaces opened before.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let current = windowController?.workspace.url.path
+        let recents = Settings.recentWorkspaces.filter { FileManager.default.fileExists(atPath: $0.path) }
+        for url in recents {
+            let item = menu.addItem(withTitle: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = url
+            item.toolTip = url.path
+            item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+            item.state = url.path == current ? .on : .off
+        }
+        if recents.isEmpty {
+            menu.addItem(withTitle: "No Recent Workspaces", action: nil, keyEquivalent: "")
+        } else {
+            menu.addItem(.separator())
+            let clear = menu.addItem(withTitle: "Clear Menu", action: #selector(clearRecents(_:)), keyEquivalent: "")
+            clear.target = self
+        }
+    }
+
+    @objc private func openRecent(_ sender: NSMenuItem) {
+        if let url = sender.representedObject as? URL { openWorkspace(url) }
+    }
+
+    @objc private func clearRecents(_ sender: Any?) {
+        Settings.recentWorkspaces = windowController.map { [$0.workspace.url] } ?? []
+        welcomeController?.reload()
+    }
 
     private(set) var settingsController: SettingsWindowController?
 
@@ -139,6 +185,7 @@ extension Debug {
 ///   -scroll <fraction>    scroll this far down the open file, from 0 to 1
 ///   -type <text>          type this text at the selection
 ///   -settings YES         open the Settings window, pictured as a panel
+///   -welcome YES          open the Welcome window
 ///   -snapshot <png>       write a picture of the window there, and quit
 ///   -timing YES           print how long launching and indexing took
 ///   -benchmark <n>        type n characters in the open file, print the

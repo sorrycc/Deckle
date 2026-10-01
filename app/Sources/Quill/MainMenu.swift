@@ -24,6 +24,9 @@ enum MainMenu {
         file.addItem(withTitle: "New Note", action: #selector(WindowController.newNote(_:)), keyEquivalent: "n")
         file.addItem(withTitle: "New Tab", action: #selector(WindowController.newTab(_:)), keyEquivalent: "t")
         file.addItem(withTitle: "Open Folder…", action: #selector(AppDelegate.openFolder(_:)), keyEquivalent: "o")
+        let recent = NSMenu()
+        recent.delegate = NSApp.delegate as? NSMenuDelegate
+        add(recent, titled: "Open Recent", to: file)
         file.addItem(withTitle: "Quick Open…", action: #selector(WindowController.quickOpen(_:)), keyEquivalent: "p")
         file.addItem(.separator())
         file.addItem(withTitle: "Close Tab", action: #selector(WindowController.closeTab(_:)), keyEquivalent: "w")

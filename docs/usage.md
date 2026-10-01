@@ -2,7 +2,7 @@
 
 ## Workspaces
 
-A workspace is a folder. Open one with File > Open Folder… (⌘O), by dropping a folder on the app, or from the switcher at the bottom of the sidebar. Quill reopens the last workspace and its tabs at launch. Hidden files and `node_modules` folders are left out.
+A workspace is a folder. Open one with File > Open Folder… (⌘O), from File > Open Recent, by dropping a folder on the app, or from the switcher at the bottom of the sidebar. Quill reopens the last workspace and its tabs at launch; when there is none, a Welcome window offers a folder to open and the workspaces opened before. Hidden files and `node_modules` folders are left out.
 
 Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). The workspace's own row, at the top of the tree, lists every note. Clicking empty space in the tree, ⌘-clicking the selected row or pressing Escape goes back to it. Titles sort as a person reads them, so "Note 2" comes before "Note 10". Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
 
@@ -75,6 +75,7 @@ For trying the app from a script:
 | `-type <text>` | Types this text at the selection; `\n` is a line break |
 | `-hover <index>` | Moves the pointer over this character; `-command YES` holds ⌘ |
 | `-palette files\|search\|commands\|headings\|backlinks` | Opens a panel; `-query <text>` fills it in |
+| `-welcome YES` | Opens the Welcome window, pictured as a panel |
 | `-settings YES` | Opens the Settings window, which a snapshot pictures as a panel; `-settingsTab 1` picks a tab |
 | `-snapshot <png>` | Writes a picture of the window, and of any panel as `<name>-panel.png`, then quits |
 | `-timing YES` | Prints how long launching and indexing took |
