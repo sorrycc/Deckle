@@ -61,6 +61,12 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         split.addSplitViewItem(listItem)
         split.addSplitViewItem(paneItem)
         split.splitView.autosaveName = "QuillSplit"
+        // The first window: columns of a comfortable width, until the user's
+        // own are saved.
+        if Settings.defaults.object(forKey: "NSSplitView Subview Frames QuillSplit") == nil {
+            tree.view.frame.size.width = 220
+            list.view.frame.size.width = 300
+        }
         window.contentViewController = split
         window.setContentSize(NSSize(width: 1240, height: 800))
         Debug.mark("split view set")
