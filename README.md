@@ -8,7 +8,7 @@ A fast Markdown editor for macOS, with a native AppKit interface and a Rust core
 
 ## Features
 
-- **Live-styled Markdown.** Headings, emphasis, links, code and quotes are styled as you type. The syntax around them is hidden except where the selection is.
+- **Live-styled Markdown.** Headings, emphasis, links, code and quotes are styled as you type. The syntax around them is hidden except where the selection is. List markers become bullets and task boxes, and code fences keep their place but show only while you edit the block.
 - **Rich blocks in place.** Images, tables, math (KaTeX) and Mermaid diagrams are drawn in place of their source and turn back into source when the insertion point enters them.
 - **Extended syntax.** Wikilinks, footnotes, tasks, callouts, superscript and subscript, `==highlights==`, front matter and highlighted code in about 20 languages.
 - **Workspaces.** Any folder is a workspace: a file tree with starred files, a note list with excerpts and thumbnails, and tabs with back and forward.
@@ -40,7 +40,7 @@ Measured on the development machine with a release build:
 
 | | |
 |---|---|
-| Typing in the middle of a 1 MB note | 5 ms median, 10 ms worst per keystroke, including layout and drawing |
+| Typing in the middle of a 1 MB note | 2 ms median, 6 ms worst per keystroke, including layout and drawing |
 | Window shown after launch | about 310 ms warm; over a second on the first launch after a build, while macOS checks the new binary |
 | 50,000-note workspace | file list ready in 0.4 s, full index in 2.1 s, both on background threads |
 

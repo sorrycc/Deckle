@@ -49,7 +49,8 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     private let contentStorage = NSTextContentStorage()
     private let layoutManager = NSTextLayoutManager()
     private var widgetStore: WidgetStore?
-    let completion = CompletionPopup()
+    /// One list serves every editor; only the focused one types.
+    var completion: CompletionPopup { .shared }
     private let rail = OutlineRail()
     private var outlinePending = false
 
@@ -135,8 +136,14 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     // MARK: Outline
 
     @objc private func scrolled(_ note: Notification) {
-        completion.close()
+        completion.close(for: self)
         scheduleOutline()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Out of its window, the editor can't take what the list offers.
+        if window == nil { completion.close(for: self) }
     }
 
     /// The outline follows edits and scrolling, once a burst of them settles.
@@ -213,7 +220,23 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         if bounds.width > 0, column != widgetWidth {
             widgetWidth = column
             widgetStore?.invalidate()
-            restyle(NSRange(location: 0, length: storage.length))
+            restyleWidgetLines()
+        }
+    }
+
+    /// Lays out again only the lines whose look depends on the column's
+    /// width: images, tables, math and diagrams. The rest of a long note is
+    /// left alone, so a resize costs no more than the widgets in it.
+    private func restyleWidgetLines() {
+        guard widgetStore != nil else { return }
+        // The core answers with one span per line; a block is laid out once.
+        var done: Set<Int> = []
+        for kind in [QuillImage, QuillTable, QuillMathBlock, QuillCodeBlock, QuillInlineMath] {
+            for span in core.spans(ofKind: kind) {
+                if kind == QuillImage && span.flags & 1 == 0 { continue }
+                if kind == QuillCodeBlock && span.flags & UInt16(QuillCodeDiagram | QuillCodeMath) == 0 { continue }
+                if done.insert(span.element.location).inserted { restyle(span.element) }
+            }
         }
     }
 
@@ -320,7 +343,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     func textViewDidChangeSelection(_ notification: Notification) {
         updateRevealed()
         // The list goes away once the insertion point leaves what it completes.
-        if completion.isShown {
+        if completion.isShown(for: self) {
             let caret = textView.selectedRange()
             let trigger = completion.trigger
             if caret.length > 0 || caret.location < trigger.location || caret.location > trigger.upperBound + 1 { completion.close() }
@@ -336,7 +359,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         for span in core.spans(in: lines) {
             switch span.kindValue {
             case QuillMarker, QuillCalloutTag, QuillThematicBreak, QuillImage, QuillTable, QuillMathBlock, QuillInlineMath,
-                QuillCodeBlock:
+                QuillCodeBlock, QuillListMarker, QuillTaskMarker:
                 let element = span.element
                 if selection.location <= element.upperBound && selection.upperBound >= element.location, found.last != element,
                     !found.contains(element)
@@ -367,7 +390,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// Offers blocks after a `/` that starts a line, and notes after `[[`.
     private func updateCompletion() {
         let selection = textView.selectedRange()
-        guard isMarkdown, selection.length == 0, !textView.hasMarkedText(), !isCode(at: selection.location) else { return completion.close() }
+        guard isMarkdown, selection.length == 0, !textView.hasMarkedText(), !isCode(at: selection.location) else { return completion.close(for: self) }
         let string = storage.string as NSString
         let line = string.lineRange(for: NSRange(location: selection.location, length: 0))
         let head = string.substring(with: NSRange(location: line.location, length: selection.location - line.location))
@@ -396,7 +419,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
                 })
             }, trigger: trigger, in: self)
         } else {
-            completion.close()
+            completion.close(for: self)
         }
     }
 

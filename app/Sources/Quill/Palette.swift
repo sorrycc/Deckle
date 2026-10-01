@@ -213,7 +213,8 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         heightConstraint.constant = Self.fieldHeight + list + (list > 0 ? 24 : 0)
         if let first = rows.firstIndex(where: { !$0.isHeader }) ?? rows.indices.first {
             table.selectRowIndexes([first], byExtendingSelection: false)
-            table.scrollRowToVisible(first)
+            // From the top, so a header above the first match stays in view.
+            table.scrollRowToVisible(0)
         }
         panel.layoutIfNeeded()
         if panel.isVisible { position() }
@@ -432,7 +433,9 @@ final class PaletteCell: NSTableCellView {
         icon.symbolConfiguration = .init(pointSize: 14, weight: .regular)
         icon.contentTintColor = .secondaryLabelColor
         title.lineBreakMode = .byTruncatingTail
+        title.maximumNumberOfLines = 1
         detail.lineBreakMode = .byTruncatingMiddle
+        detail.maximumNumberOfLines = 1
         trailing.font = .systemFont(ofSize: 11)
         trailing.textColor = .tertiaryLabelColor
         trailing.alignment = .right

@@ -30,8 +30,10 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     init(workspace url: URL) {
         workspace = Workspace(url: url)
+        Debug.mark("workspace opened")
         tree = FileTreeController(workspace: workspace)
         list = NoteListController(workspace: workspace)
+        Debug.mark("columns made")
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1240, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -61,6 +63,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         split.splitView.autosaveName = "QuillSplit"
         window.contentViewController = split
         window.setContentSize(NSSize(width: 1240, height: 800))
+        Debug.mark("split view set")
 
         configureControls()
         let toolbar = NSToolbar(identifier: "QuillToolbar")
@@ -71,6 +74,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         window.toolbarStyle = .unified
         window.setFrameAutosaveName("QuillWindow")
         if !window.setFrameUsingName("QuillWindow") { window.center() }
+        Debug.mark("toolbar set")
 
         workspace.onFolderChange = { [weak self] url in self?.tree.folderChanged(url) }
         workspace.onIndexChange = { [weak self] in
@@ -177,6 +181,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     /// The selected tab, or what it shows, changed.
     private func tabChanged() {
+        CompletionPopup.shared.close()
         tabStrip.update(tabs: tabs, selected: selectedTab)
         pane.show(selectedTab.view)
         backButton.isEnabled = selectedTab.canGoBack

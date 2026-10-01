@@ -26,6 +26,7 @@ final class SettingsWindowController: NSWindowController {
 }
 
 /// A form of labeled rows, as System Settings lays them out.
+@MainActor
 private func form(_ rows: [(String, NSView)], width: CGFloat = 520) -> NSView {
     let grid = NSGridView(views: rows.map { label, control in
         let text = NSTextField(labelWithString: label.isEmpty ? "" : label + ":")
@@ -91,7 +92,8 @@ final class AppearancePane: NSViewController {
         let size = NSStackView(views: [sizeField, sizeStepper, NSTextField(labelWithString: "pt")])
         size.spacing = 4
 
-        view = form([("Theme", grid), ("Font", fontPopup), ("Size", size)], width: 640)
+        view = form([("Theme", grid), ("Font", fontPopup), ("Size", size)], width: 720)
+        preferredContentSize = view.fittingSize
         refresh()
     }
 
@@ -172,7 +174,8 @@ final class EditorPane: NSViewController {
         width.widthAnchor.constraint(equalToConstant: 240).isActive = true
         let height = NSSlider(value: Settings.lineHeight, minValue: 1.2, maxValue: 2.2, target: self, action: #selector(heightChanged(_:)))
         height.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        view = form([("Syntax", hide), ("", spelling), ("Line width", width), ("Line height", height)])
+        view = form([("Syntax", hide), ("", spelling), ("Line width", width), ("Line height", height)], width: 720)
+        preferredContentSize = view.fittingSize
     }
 
     @objc private func toggleHide(_ sender: NSButton) { Settings.hidesMarkers = sender.state == .on }

@@ -131,5 +131,61 @@ final class DecoratedFragment: NSTextLayoutFragment {
             let y = area.minY + bounds.midY - item.size.height / 2
             item.image.draw(in: CGRect(x: x, y: y, width: item.size.width, height: item.size.height), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
+        for bullet in d.bullets {
+            guard let center = center(of: NSRange(location: bullet.index, length: 1), in: area) else { continue }
+            drawBullet(at: center, level: bullet.level, size: d.fontSize)
+        }
+        for box in d.checkboxes {
+            guard let center = center(of: box.range, in: area) else { continue }
+            drawCheckbox(at: center, checked: box.checked, size: d.fontSize)
+        }
+    }
+
+    /// The middle of the characters at `range`, in the drawing's coordinates.
+    private func center(of range: NSRange, in area: CGRect) -> CGPoint? {
+        guard let line = textLineFragments.first(where: { $0.characterRange.contains(range.location) }) else { return nil }
+        let bounds = line.typographicBounds
+        let start = line.locationForCharacter(at: range.location).x
+        let end = line.locationForCharacter(at: range.upperBound).x
+        return CGPoint(x: area.minX + layoutFragmentFrame.minX + bounds.minX + (start + end) / 2, y: area.minY + bounds.midY)
+    }
+
+    /// A disc, a ring or a square, as lists are nested.
+    private func drawBullet(at center: CGPoint, level: Int, size: CGFloat) {
+        let diameter = max(4, (size * 0.4).rounded())
+        let rect = CGRect(x: (center.x - diameter / 2).rounded(), y: (center.y - diameter / 2).rounded(), width: diameter, height: diameter)
+        theme.accent.set()
+        switch level {
+        case 1: NSBezierPath(ovalIn: rect).fill()
+        case 2:
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.6, dy: 0.6))
+            ring.lineWidth = 1.2
+            ring.stroke()
+        default: rect.insetBy(dx: 0.5, dy: 0.5).fill()
+        }
+    }
+
+    /// A box, ticked in the accent color.
+    private func drawCheckbox(at center: CGPoint, checked: Bool, size: CGFloat) {
+        let side = (size * 0.95).rounded()
+        let rect = CGRect(x: (center.x - side / 2).rounded() + 0.5, y: (center.y - side / 2).rounded() + 0.5, width: side - 1, height: side - 1)
+        let box = NSBezierPath(roundedRect: rect, xRadius: side * 0.26, yRadius: side * 0.26)
+        if checked {
+            theme.accent.setFill()
+            box.fill()
+            let tick = NSBezierPath()
+            tick.move(to: CGPoint(x: rect.minX + rect.width * 0.27, y: rect.minY + rect.height * 0.53))
+            tick.line(to: CGPoint(x: rect.minX + rect.width * 0.44, y: rect.minY + rect.height * 0.70))
+            tick.line(to: CGPoint(x: rect.minX + rect.width * 0.75, y: rect.minY + rect.height * 0.33))
+            tick.lineWidth = max(1.5, side * 0.13)
+            tick.lineCapStyle = .round
+            tick.lineJoinStyle = .round
+            NSColor.white.setStroke()
+            tick.stroke()
+        } else {
+            theme.text.withAlphaComponent(0.32).setStroke()
+            box.lineWidth = 1.5
+            box.stroke()
+        }
     }
 }

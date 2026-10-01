@@ -34,7 +34,7 @@ final class EditorTextView: NSTextView {
 
     /// The completion list takes the arrow keys, Return and Escape while open.
     override func doCommand(by selector: Selector) {
-        if editor?.completion.handle(selector) == true { return }
+        if let editor, editor.completion.handle(selector, from: editor) { return }
         super.doCommand(by: selector)
     }
 

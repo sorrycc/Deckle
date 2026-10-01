@@ -35,9 +35,17 @@ struct LineDecoration {
     /// The line's height when a widget takes its place: the text is hidden
     /// and the line all but closes.
     var lineHeight: CGFloat?
+    /// Bullets drawn over hidden list markers: the marker's character, which
+    /// keeps its room, and the depth of its list.
+    var bullets: [(index: Int, level: Int)] = []
+    /// Boxes drawn over hidden task markers.
+    var checkboxes: [(range: NSRange, checked: Bool)] = []
+    /// The size of the line's font, which the bullets and boxes scale with.
+    var fontSize: CGFloat = 15
 
     var isPlain: Bool {
         block == .none && quoteDepth == 0 && callout == 0 && !drawsRule && widget == nil && inlineImages.isEmpty
+            && bullets.isEmpty && checkboxes.isEmpty
     }
 }
 
@@ -65,7 +73,7 @@ final class Styler {
     private let hiddenFont = NSFont.systemFont(ofSize: 0.01)
 
     static let calloutNames = ["", "Note", "Tip", "Important", "Warning", "Caution"]
-    static let calloutSymbols = ["", "info.circle.fill", "lightbulb.fill", "exclamationmark.bubble.fill", "exclamationmark.triangle.fill", "flame.fill"]
+    static let calloutSymbols = ["", "info.circle", "lightbulb", "exclamationmark.bubble", "exclamationmark.triangle", "flame"]
     static let quoteIndent: CGFloat = 18
     static let blockPadding: CGFloat = 14
 
@@ -168,8 +176,11 @@ final class Styler {
                 lineFont = fonts.mono
                 tight = true
                 let isFence = span.flags & UInt16(QuillCodeFenceOpen | QuillCodeFenceClose) != 0
+                // A fence keeps its line, as the block's padding, but shows
+                // its text only while the selection is in the block.
+                let fenceColor = isCode && !isRevealed(span.element) ? NSColor.clear : theme.syntax
                 text.addAttributes(
-                    [.font: lineFont, .foregroundColor: isFence || !isCode ? theme.syntax : theme.text], range: full)
+                    [.font: lineFont, .foregroundColor: isFence || !isCode ? fenceColor : theme.text], range: full)
                 decoration.block = isCode ? .code : .frontMatter
                 decoration.blockFirst = span.start == span.elem_start
                 decoration.blockLast = span.end == span.elem_end
@@ -241,17 +252,31 @@ final class Styler {
             case QuillHighlight:
                 text.addAttribute(.backgroundColor, value: theme.highlight, range: r)
             case QuillListMarker:
-                text.addAttribute(.foregroundColor, value: theme.accent, range: r)
+                let task = spans.first { $0.kindValue == QuillTaskMarker && $0.start >= span.end }
+                if span.flags == 0 && isMarkdown && !isRevealed(span.element) {
+                    // A bullet is drawn over the marker, which keeps its room
+                    // so the line doesn't shift when the syntax shows.
+                    text.addAttribute(.foregroundColor, value: NSColor.clear, range: r)
+                    if task == nil { decoration.bullets.append((r.location, Int(span.level))) }
+                } else {
+                    text.addAttribute(.foregroundColor, value: theme.accent, range: r)
+                }
                 // Wrapped lines of the item line up with its text.
                 var prefixEnd = min(content.upperBound, r.upperBound + 1)
-                if let task = spans.first(where: { $0.kindValue == QuillTaskMarker && $0.start >= span.end }), let t = local(task) {
+                if let task, let t = local(task) {
                     prefixEnd = min(content.upperBound, t.upperBound + 1)
                 }
                 let prefix = text.attributedSubstring(from: NSRange(location: 0, length: prefixEnd))
                 style.headIndent = style.firstLineHeadIndent + ceil(prefix.size().width)
             case QuillTaskMarker:
                 let checked = span.flags != 0
-                text.addAttributes([.font: mono(for: lineFont), .foregroundColor: checked ? theme.syntax : theme.accent], range: r)
+                if isMarkdown && !isRevealed(span.element) {
+                    // A box is drawn over the brackets, which keep their room.
+                    text.addAttributes([.font: mono(for: lineFont), .foregroundColor: NSColor.clear], range: r)
+                    decoration.checkboxes.append((r, checked))
+                } else {
+                    text.addAttributes([.font: mono(for: lineFont), .foregroundColor: checked ? theme.syntax : theme.accent], range: r)
+                }
                 if checked { taskChecked = NSRange(location: r.upperBound, length: max(0, content.upperBound - r.upperBound)) }
             case QuillTableCell:
                 if span.flags & UInt16(QuillTableHeader << 4) != 0 { addTrait(.bold, to: text, in: r) }
@@ -335,6 +360,7 @@ final class Styler {
             widgets.applyWidgets(to: text, range: range, spans: spans, style: style, decoration: &decoration, styler: self, hide: hide)
         }
 
+        decoration.fontSize = lineFont.pointSize
         let height = decoration.lineHeight ?? lineHeight(for: lineFont, tight: tight)
         style.minimumLineHeight = height
         style.maximumLineHeight = height

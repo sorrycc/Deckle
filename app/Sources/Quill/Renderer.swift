@@ -19,6 +19,7 @@ final class Renderer: NSObject, WKNavigationDelegate {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var isLoaded = false
+    private var loadScheduled = false
     private var queue: [(key: String, kind: Kind, source: String, dark: Bool, color: String, size: CGFloat, width: CGFloat)] = []
     private var isBusy = false
     private var images: [String: NSImage] = [:]
@@ -48,7 +49,15 @@ final class Renderer: NSObject, WKNavigationDelegate {
     }
 
     private func start() {
-        if webView == nil { load() }
+        if webView == nil {
+            // After the frame that asked, so a note opens before WebKit starts.
+            guard !loadScheduled else { return }
+            loadScheduled = true
+            DispatchQueue.main.async { [self] in
+                load()
+            }
+            return
+        }
         guard isLoaded, !isBusy, !queue.isEmpty else { return }
         isBusy = true
         let job = queue.removeFirst()

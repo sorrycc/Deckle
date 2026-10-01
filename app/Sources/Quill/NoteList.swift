@@ -18,6 +18,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
     private let titleLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
     private let sortButton = NSButton()
+    private let emptyLabel = NSTextField(labelWithString: "No Notes")
     private var count = 0
     /// Rows read from the core so far, by page.
     private var pages: [Int: [NoteSummary]] = [:]
@@ -41,7 +42,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         table.headerView = nil
         table.style = .inset
         table.rowHeight = NoteCell.height
-        table.intercellSpacing = NSSize(width: 0, height: 2)
+        table.intercellSpacing = .zero
         table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
@@ -70,8 +71,12 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         let header = NSStackView(views: [titleLabel, countLabel, NSView(), sortButton])
         header.spacing = 6
         header.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 12)
+        emptyLabel.font = .systemFont(ofSize: 13)
+        emptyLabel.textColor = .tertiaryLabelColor
+        emptyLabel.alignment = .center
+        emptyLabel.isHidden = true
         let container = NSView()
-        for view in [header, scrollView] as [NSView] {
+        for view in [header, scrollView, emptyLabel] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -84,6 +89,8 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            emptyLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
         view = container
         updateSortButton()
@@ -128,6 +135,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         pages.removeAll()
         titleLabel.stringValue = folder.path == workspace.url.path ? workspace.name : folder.lastPathComponent
         countLabel.stringValue = count.formatted()
+        emptyLabel.isHidden = count > 0
         isSelectingProgrammatically = true
         table.reloadData()
         restoreSelection()
@@ -145,12 +153,14 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         return index < rows.count ? rows[index] : nil
     }
 
-    /// Marks the row of the note the editor shows, if it is loaded.
+    /// Marks the row of the note the editor shows, if it is loaded, and
+    /// brings it into view.
     func select(_ url: URL?) {
         selectedPath = url?.path
         isSelectingProgrammatically = true
         restoreSelection()
         isSelectingProgrammatically = false
+        if table.selectedRow >= 0 { table.scrollRowToVisible(table.selectedRow) }
     }
 
     private func restoreSelection() {
@@ -173,6 +183,14 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         let cell = tableView.makeView(withIdentifier: id, owner: self) as? NoteCell ?? NoteCell(identifier: id)
         cell.show(note)
         return cell
+    }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let id = NSUserInterfaceItemIdentifier("noteRow")
+        if let row = tableView.makeView(withIdentifier: id, owner: self) as? NoteRowView { return row }
+        let view = NoteRowView()
+        view.identifier = id
+        return view
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -216,16 +234,29 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
     }
 }
 
-/// A row of the note list.
+/// A row between two hairlines, which the selection covers.
+final class NoteRowView: NSTableRowView {
+    override func drawSeparator(in dirtyRect: NSRect) {}
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard !isSelected, !isNextRowSelected else { return }
+        NSColor.separatorColor.setFill()
+        NSRect(x: 20, y: bounds.maxY - 1, width: max(0, bounds.width - 36), height: 1).fill()
+    }
+}
+
+/// A row of the note list: the title with the date after it, then the start
+/// of the text, beside the note's first image.
 final class NoteCell: NSTableCellView {
-    static let height: CGFloat = 78
+    static let height: CGFloat = 68
 
     private let titleLabel = NSTextField(labelWithString: "")
     private let excerptLabel = NSTextField(wrappingLabelWithString: "")
     private let dateLabel = NSTextField(labelWithString: "")
     private let thumbnail = NSImageView()
-    private var excerptTrailing: NSLayoutConstraint!
-    private var excerptToThumbnail: NSLayoutConstraint!
+    private var textTrailing: [NSLayoutConstraint] = []
+    private var textToThumbnail: [NSLayoutConstraint] = []
     /// The image this cell waits for, so a late one for a reused cell is dropped.
     private var imagePath = ""
 
@@ -234,13 +265,15 @@ final class NoteCell: NSTableCellView {
         self.identifier = identifier
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.maximumNumberOfLines = 1
         excerptLabel.font = .systemFont(ofSize: 12)
         excerptLabel.textColor = .secondaryLabelColor
         excerptLabel.maximumNumberOfLines = 2
         excerptLabel.lineBreakMode = .byTruncatingTail
         excerptLabel.cell?.truncatesLastVisibleLine = true
-        dateLabel.font = .systemFont(ofSize: 11)
+        dateLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         dateLabel.textColor = .tertiaryLabelColor
+        dateLabel.alignment = .right
         thumbnail.imageScaling = .scaleAxesIndependently
         thumbnail.wantsLayer = true
         thumbnail.layer?.cornerRadius = 6
@@ -251,21 +284,29 @@ final class NoteCell: NSTableCellView {
             view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             addSubview(view)
         }
-        excerptTrailing = excerptLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10)
-        excerptToThumbnail = excerptLabel.trailingAnchor.constraint(equalTo: thumbnail.leadingAnchor, constant: -10)
+        dateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        dateLabel.setContentHuggingPriority(.required, for: .horizontal)
+        textTrailing = [
+            dateLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            excerptLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+        ]
+        textToThumbnail = [
+            dateLabel.trailingAnchor.constraint(equalTo: thumbnail.leadingAnchor, constant: -10),
+            excerptLabel.trailingAnchor.constraint(equalTo: thumbnail.leadingAnchor, constant: -10),
+        ]
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 9),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(equalTo: excerptLabel.trailingAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: dateLabel.leadingAnchor, constant: -8),
+            dateLabel.firstBaselineAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor),
             excerptLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
             excerptLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            dateLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            dateLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            excerptLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
             thumbnail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             thumbnail.centerYAnchor.constraint(equalTo: centerYAnchor),
-            thumbnail.widthAnchor.constraint(equalToConstant: 52),
-            thumbnail.heightAnchor.constraint(equalToConstant: 52),
-        ])
+            thumbnail.widthAnchor.constraint(equalToConstant: 46),
+            thumbnail.heightAnchor.constraint(equalToConstant: 46),
+        ] + textTrailing)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -277,8 +318,8 @@ final class NoteCell: NSTableCellView {
         dateLabel.stringValue = NoteCell.format(Date(timeIntervalSince1970: note.modified))
         let hasImage = !note.image.isEmpty
         thumbnail.isHidden = !hasImage
-        (hasImage ? excerptTrailing : excerptToThumbnail).isActive = false
-        (hasImage ? excerptToThumbnail : excerptTrailing).isActive = true
+        NSLayoutConstraint.deactivate(hasImage ? textTrailing : textToThumbnail)
+        NSLayoutConstraint.activate(hasImage ? textToThumbnail : textTrailing)
         imagePath = note.image
         thumbnail.image = nil
         guard hasImage else { return }

@@ -13,7 +13,10 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         var apply: (_ editor: EditorView, _ trigger: NSRange) -> Void
     }
 
-    private let panel: PalettePanel
+    static let shared = CompletionPopup()
+
+    /// Made when first shown: a window is dear, and most notes never ask.
+    private var panel: PalettePanel?
     private let table = NSTableView()
     private var items: [Item] = []
     private weak var editor: EditorView?
@@ -23,9 +26,8 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
     private static let width: CGFloat = 300
     private static let rowHeight: CGFloat = 30
 
-    override init() {
-        panel = PalettePanel(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 200), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        super.init()
+    private func makePanel() -> PalettePanel {
+        let panel = PalettePanel(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 200), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -54,14 +56,17 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         glass.cornerRadius = 12
         glass.contentView = scroll
         panel.contentView = glass
+        return panel
     }
 
-    var isShown: Bool { panel.isVisible }
+    var isShown: Bool { panel?.isVisible ?? false }
 
     /// Shows `items` under the insertion point, or hides the list when there
     /// are none.
     func show(_ items: [Item], trigger: NSRange, in editor: EditorView) {
         guard !items.isEmpty, let window = editor.window else { return close() }
+        let panel = self.panel ?? makePanel()
+        self.panel = panel
         self.items = items
         self.trigger = trigger
         self.editor = editor
@@ -74,20 +79,32 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         // Above the line when there is no room below it.
         if let screen = window.screen, frame.minY < screen.visibleFrame.minY { frame.origin.y = caret.maxY + 6 }
         panel.setFrame(frame, display: true)
-        if !panel.isVisible { window.addChildWindow(panel, ordered: .above) }
+        // Over the editor's window, which may not be the one it was over.
+        if panel.parent !== window {
+            panel.parent?.removeChildWindow(panel)
+            window.addChildWindow(panel, ordered: .above)
+        }
         panel.orderFront(nil)
     }
 
     func close() {
-        guard panel.isVisible else { return }
+        guard let panel, panel.isVisible else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
         trigger = NSRange(location: NSNotFound, length: 0)
     }
 
-    /// Takes a key the text view would act on. Returns whether it did.
-    func handle(_ selector: Selector) -> Bool {
-        guard panel.isVisible else { return false }
+    /// Whether the list is up for `editor`.
+    func isShown(for editor: EditorView) -> Bool { isShown && self.editor === editor }
+
+    /// Puts the list away if it is `editor`'s.
+    func close(for editor: EditorView) {
+        if self.editor === editor { close() }
+    }
+
+    /// Takes a key `editor`'s text view would act on. Returns whether it did.
+    func handle(_ selector: Selector, from editor: EditorView) -> Bool {
+        guard isShown(for: editor) else { return false }
         switch selector {
         case #selector(NSResponder.moveDown(_:)): move(1)
         case #selector(NSResponder.moveUp(_:)): move(-1)

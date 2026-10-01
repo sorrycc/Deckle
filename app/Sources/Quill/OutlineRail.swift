@@ -7,12 +7,23 @@ final class OutlineRail: NSView {
     var onSelect: ((Heading) -> Void)?
     private var headings: [Heading] = []
     private var current = -1
-    private let card = NSGlassEffectView()
+    /// The list as a card, made when the rail first opens: a glass view is
+    /// dear, and most notes are read without one.
+    private var card: NSGlassEffectView?
     private let list = NSStackView()
+    /// The headings changed since the list was last built.
+    private var listIsStale = true
     private var isOpen = false {
         didSet {
             guard isOpen != oldValue else { return }
-            card.isHidden = !isOpen
+            if isOpen {
+                let card = self.card ?? makeCard()
+                self.card = card
+                if listIsStale { rebuildList() } else { updateList() }
+                card.isHidden = false
+            } else {
+                card?.isHidden = true
+            }
             needsDisplay = true
         }
     }
@@ -26,12 +37,16 @@ final class OutlineRail: NSView {
         list.alignment = .leading
         list.spacing = 2
         list.edgeInsets = NSEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
+        list.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func makeCard() -> NSGlassEffectView {
         let scroll = NSScrollView()
         scroll.documentView = list
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        list.translatesAutoresizingMaskIntoConstraints = false
+        let card = NSGlassEffectView()
         card.contentView = scroll
         card.cornerRadius = 14
         card.isHidden = true
@@ -44,6 +59,7 @@ final class OutlineRail: NSView {
             card.widthAnchor.constraint(equalToConstant: 260),
             card.heightAnchor.constraint(lessThanOrEqualTo: heightAnchor, constant: -40),
         ])
+        return card
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -65,11 +81,16 @@ final class OutlineRail: NSView {
         self.headings = headings
         self.current = current
         isHidden = headings.count < 2
-        if changed { rebuildList() } else { updateList() }
+        // The list is built when it is looked at, not on every edit.
+        listIsStale = listIsStale || changed
+        if isOpen {
+            if listIsStale { rebuildList() } else { updateList() }
+        }
         needsDisplay = true
     }
 
     private func rebuildList() {
+        listIsStale = false
         list.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for (index, heading) in headings.enumerated() {
             let button = NSButton(title: heading.title, target: self, action: #selector(choose(_:)))
@@ -124,7 +145,7 @@ final class OutlineRail: NSView {
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if !isOpen && point.x > bounds.width - Self.width && tickArea.insetBy(dx: 0, dy: -8).contains(point) { isOpen = true }
-        if isOpen && !card.frame.insetBy(dx: -20, dy: -20).contains(point) && point.x < bounds.width - Self.width { isOpen = false }
+        if isOpen, let card, !card.frame.insetBy(dx: -20, dy: -20).contains(point), point.x < bounds.width - Self.width { isOpen = false }
     }
 
     override func mouseExited(with event: NSEvent) { isOpen = false }

@@ -138,6 +138,7 @@ extension Debug {
 ///   -select <loc,len>     select this range of the open file
 ///   -scroll <fraction>    scroll this far down the open file, from 0 to 1
 ///   -type <text>          type this text at the selection
+///   -settings YES         open the Settings window, pictured as a panel
 ///   -snapshot <png>       write a picture of the window there, and quit
 ///   -timing YES           print how long launching and indexing took
 ///   -benchmark <n>        type n characters in the open file, print the
@@ -201,6 +202,7 @@ enum Debug {
                     editor.textView.insertText(text.replacingOccurrences(of: "\\n", with: "\n"), replacementRange: editor.textView.selectedRange())
                 }
             }
+            if defaults.bool(forKey: "settings") { (NSApp.delegate as? AppDelegate)?.showSettings(nil) }
             if let palette = defaults.string(forKey: "palette") {
                 let query = defaults.string(forKey: "query") ?? ""
                 switch palette {

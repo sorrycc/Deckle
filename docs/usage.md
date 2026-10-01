@@ -25,7 +25,7 @@ Right-click in the tree to create notes and folders, rename, star, reveal in Fin
 | ` ```mermaid ` | A diagram, rendered with Mermaid |
 | `---` at the top of the note | Front matter; a `title:` there names the note in lists |
 
-Markdown's syntax shows only around the selection. Turn this off in Settings > Editor to see it everywhere.
+Markdown's syntax shows only around the selection: `-` becomes a bullet, `[ ]` a box, and the fences of a code block show only while the insertion point is in it. Turn this off in Settings > Editor to see it everywhere.
 
 - Return continues a list or quote; Return on an empty item ends it. Tab and Shift-Tab indent and outdent list items.
 - `/` at the start of a line opens a menu of blocks to insert.
@@ -68,6 +68,7 @@ For trying the app from a script:
 | `-scroll <fraction>` | Scrolls this far down the open file, from 0 to 1 |
 | `-type <text>` | Types this text at the selection; `\n` is a line break |
 | `-palette files\|search\|commands\|headings\|backlinks` | Opens a panel; `-query <text>` fills it in |
+| `-settings YES` | Opens the Settings window, which a snapshot pictures as a panel |
 | `-snapshot <png>` | Writes a picture of the window, and of any panel as `<name>-panel.png`, then quits |
 | `-timing YES` | Prints how long launching and indexing took |
 | `-benchmark <n>` | Types n characters into the open file, prints the time each took, and quits |
