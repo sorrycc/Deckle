@@ -74,7 +74,8 @@ final class TableWidget: Widget {
         for (r, row) in rows.enumerated() {
             var x = frame.minX
             for (i, cell) in row.enumerated() where i < widths.count {
-                let box = CGRect(x: x + Self.padding.width, y: y + Self.padding.height, width: widths[i] - 2 * Self.padding.width, height: heights[r] - 2 * Self.padding.height)
+                // A column narrower than its padding still wraps, not overlaps.
+                let box = CGRect(x: x + Self.padding.width, y: y + Self.padding.height, width: max(1, widths[i] - 2 * Self.padding.width), height: heights[r] - 2 * Self.padding.height)
                 cell.text.draw(with: box, options: [.usesLineFragmentOrigin, .usesFontLeading])
                 x += widths[i]
                 if i < widths.count - 1 { CGRect(x: x, y: y, width: 1, height: heights[r]).fill() }
@@ -118,6 +119,7 @@ final class WidgetStore: WidgetSource {
         decoration: inout LineDecoration, styler: Styler, hide: (NSRange) -> Void
     ) {
         guard let editor else { return }
+        decoration.widgetWidth = editor.columnWidth
         let whole = NSRange(location: 0, length: text.length)
         func local(_ r: NSRange) -> NSRange { NSIntersectionRange(NSRange(location: r.location - range.location, length: r.length), whole) }
         let lineEnd = (text.string as NSString).rangeOfCharacter(from: .newlines).location

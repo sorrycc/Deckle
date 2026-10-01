@@ -27,6 +27,8 @@ struct LineDecoration {
     var drawsRule = false
     /// A block drawn in place of the line's text, or above it.
     var widget: Widget?
+    /// The column width the widget was laid out for.
+    var widgetWidth: CGFloat = 0
     /// Images drawn in the line at a character, in the room its kerning
     /// makes: rendered inline math.
     var inlineImages: [(index: Int, image: NSImage, size: NSSize)] = []

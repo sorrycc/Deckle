@@ -207,13 +207,13 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let inset = NSSize(width: max(28, ((bounds.width - width) / 2).rounded()), height: 24)
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
         // Widgets are sized to the column: a new width lays them out again.
+        // That includes the first layout: TextKit asks for paragraphs before
+        // the view has a frame, and those hold widgets sized for no width.
         let column = columnWidth.rounded()
         if bounds.width > 0, column != widgetWidth {
-            let first = widgetWidth == 0
             widgetWidth = column
             widgetStore?.invalidate()
-            // The first layout has nothing laid out yet to redo.
-            if !first { restyle(NSRange(location: 0, length: storage.length)) }
+            restyle(NSRange(location: 0, length: storage.length))
         }
     }
 
@@ -258,6 +258,20 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         restyle(range)
     }
 
+    /// The lines found styled for a stale width, restyled together after
+    /// the layout that found them.
+    private var healing: NSRange?
+
+    private func healLater(_ range: NSRange) {
+        if let healing { self.healing = NSUnionRange(healing, range); return }
+        healing = range
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let range = self.healing else { return }
+            self.healing = nil
+            self.restyle(range)
+        }
+    }
+
     /// Has the lines of `range` laid out again, with their current spans.
     func restyle(_ range: NSRange) {
         let length = storage.length
@@ -284,6 +298,15 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     ) -> NSTextLayoutFragment {
         guard let paragraph = textElement as? StyledParagraph, !paragraph.decoration.isPlain else {
             return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
+        if paragraph.decoration.widget != nil, bounds.width > 0, paragraph.decoration.widgetWidth != columnWidth,
+            let range = textElement.elementRange
+        {
+            // Styled for another width, before a layout: laid out again once
+            // this layout is done.
+            let start = contentStorage.offset(from: contentStorage.documentRange.location, to: range.location)
+            let length = contentStorage.offset(from: range.location, to: range.endLocation)
+            healLater(NSRange(location: start, length: length))
         }
         let fragment = DecoratedFragment(textElement: textElement, range: textElement.elementRange)
         fragment.decoration = paragraph.decoration
