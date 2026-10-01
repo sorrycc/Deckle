@@ -23,7 +23,7 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
     /// The typed text the list completes, from its `/` or `[[`.
     private(set) var trigger = NSRange(location: NSNotFound, length: 0)
 
-    private static let width: CGFloat = 300
+    private static let width: CGFloat = 340
     private static let rowHeight: CGFloat = 30
 
     private func makePanel() -> PalettePanel {
@@ -78,6 +78,7 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         var frame = NSRect(x: caret.minX - 10, y: caret.minY - height - 6, width: Self.width, height: height)
         // Above the line when there is no room below it.
         if let screen = window.screen, frame.minY < screen.visibleFrame.minY { frame.origin.y = caret.maxY + 6 }
+        panel.appearance = window.appearance
         panel.setFrame(frame, display: true)
         // Over the editor's window, which may not be the one it was over.
         if panel.parent !== window {

@@ -176,17 +176,21 @@ final class PlaceholderView: NSView {
     }
 }
 
-/// An image file, fitted to the pane and zoomable.
+/// An image file, centered in the pane, fitted to it and zoomable.
 final class ImagePreview: NSView {
     private let scrollView = NSScrollView()
     private let imageView = NSImageView()
+    /// The image's size in pixels, for the status bar.
+    let pixelSize: NSSize
 
     init(url: URL) {
-        super.init(frame: .zero)
         let image = NSImage(contentsOf: url)
+        pixelSize = image?.representations.first.map { NSSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? .zero
+        super.init(frame: .zero)
         imageView.image = image
         imageView.imageScaling = .scaleProportionallyDown
         imageView.frame = NSRect(origin: .zero, size: image?.size ?? .zero)
+        scrollView.contentView = CenteringClipView()
         scrollView.documentView = imageView
         scrollView.allowsMagnification = true
         scrollView.minMagnification = 0.1
@@ -214,8 +218,20 @@ final class ImagePreview: NSView {
         // Fits a large image to the pane once, and leaves the zoom alone after.
         guard !fitted, let size = imageView.image?.size, size.width > 0, bounds.width > 0 else { return }
         fitted = true
-        let visible = scrollView.contentView.bounds.size
+        let visible = scrollView.frame.size
         let scale = min(1, min((visible.width - 40) / size.width, (visible.height - 40) / size.height))
         if scale < 1 { scrollView.magnification = max(scrollView.minMagnification, scale) }
+    }
+}
+
+/// A clip view that keeps a document smaller than itself in the middle.
+final class CenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        guard let document = documentView else { return rect }
+        let frame = document.frame
+        if frame.width < rect.width { rect.origin.x = frame.minX - (rect.width - frame.width) / 2 }
+        if frame.height < rect.height { rect.origin.y = frame.minY - (rect.height - frame.height) / 2 }
+        return rect
     }
 }

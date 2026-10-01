@@ -60,6 +60,12 @@ final class StatusBar: NSView {
         backlinksButton.title = count == 1 ? "1 backlink" : "\(count) backlinks"
     }
 
+    /// One line about a file that isn't text: an image's size.
+    func show(note: String) {
+        languageLabel.isHidden = false
+        languageLabel.stringValue = note
+    }
+
     /// Nothing to report: the tab has no text.
     func clear() {
         positionLabel.stringValue = ""

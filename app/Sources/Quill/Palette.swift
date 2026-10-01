@@ -132,6 +132,8 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         case .headings: "Go to a heading"
         }
         field.stringValue = query
+        // The theme's appearance, so a light theme gets a light panel.
+        panel.appearance = window.appearance
         update()
         if !panel.isVisible {
             window.addChildWindow(panel, ordered: .above)
