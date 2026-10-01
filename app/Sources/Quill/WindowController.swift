@@ -198,6 +198,8 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
             if tree.isViewLoaded { tree.select(url) }
         } else {
             list.select(nil)
+            // No note to point at: the tree marks the folder the list shows.
+            if tree.isViewLoaded { tree.select(list.folder) }
         }
         selectedTab.editor?.focus()
         updateStatus()

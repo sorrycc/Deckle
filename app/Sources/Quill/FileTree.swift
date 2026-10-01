@@ -16,13 +16,18 @@ final class FileNode: NSObject {
     let isDirectory: Bool
     /// The Starred group, which is not a folder on disk.
     let isGroup: Bool
+    /// The row for the workspace itself, which lists every note. It holds
+    /// the workspace folder but never expands: its contents are the rows
+    /// below it.
+    let isWorkspace: Bool
     weak var parent: FileNode?
     var children: [FileNode]?
 
-    init(url: URL, isDirectory: Bool, isGroup: Bool = false, parent: FileNode? = nil) {
+    init(url: URL, isDirectory: Bool, isGroup: Bool = false, isWorkspace: Bool = false, parent: FileNode? = nil) {
         self.url = url
         self.isDirectory = isDirectory
         self.isGroup = isGroup
+        self.isWorkspace = isWorkspace
         self.parent = parent
     }
 
@@ -57,8 +62,9 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     weak var delegate: FileTreeDelegate?
     let workspace: Workspace
     private let root: FileNode
+    private let workspaceNode: FileNode
     private let starredGroup: FileNode
-    private let outline = NSOutlineView()
+    private let outline = FileOutlineView()
     private let scrollView = NSScrollView()
     private let switcher = NSPopUpButton(frame: .zero, pullsDown: true)
     private let emptyView = EmptyStateView(title: "No Files", detail: "Drop files here, or press ⌘N.")
@@ -71,6 +77,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     init(workspace: Workspace) {
         self.workspace = workspace
         root = FileNode(url: workspace.url, isDirectory: true)
+        workspaceNode = FileNode(url: workspace.url, isDirectory: true, isWorkspace: true)
         starredGroup = FileNode(url: workspace.url.appendingPathComponent(".starred"), isDirectory: true, isGroup: true)
         super.init(nibName: nil, bundle: nil)
         let state = Settings.state(for: workspace.url)
@@ -152,6 +159,8 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         for path in expanded.sorted() {
             if let node = node(for: URL(fileURLWithPath: path)) { outline.expandItem(node) }
         }
+        // The list starts with every note, and the tree says so.
+        if outline.selectedRow < 0 { select(workspace.url) }
     }
 
     // MARK: State
@@ -163,7 +172,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     /// The folders expanded in the tree, to open them again next time.
     var expandedPaths: [String] {
         (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? FileNode }
-            .filter { $0.isDirectory && !$0.isGroup && outline.isItemExpanded($0) }.map(\.url.path)
+            .filter { $0.isDirectory && !$0.isGroup && !$0.isWorkspace && outline.isItemExpanded($0) }.map(\.url.path)
     }
 
     /// The folder a new note goes in: the selected folder, or the selected
@@ -241,7 +250,9 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 
     /// Selects the row of `url`, expanding the folders above it if asked.
+    /// The workspace folder itself selects the workspace row.
     func select(_ url: URL, expanding: Bool = true) {
+        if url.path == root.url.path { return selectRow(of: workspaceNode) }
         guard url.path.hasPrefix(root.url.path + "/") else { return }
         if expanding {
             var parents: [URL] = []
@@ -254,8 +265,11 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
                 if let node = node(for: folder) { outline.expandItem(node) }
             }
         }
-        guard let node = node(for: url) else { return }
         // The file's own row, not its copy under Starred.
+        if let node = node(for: url) { selectRow(of: node) }
+    }
+
+    private func selectRow(of node: FileNode) {
         let row = outline.row(forItem: node)
         guard row >= 0, row != outline.selectedRow else { return }
         isSelectingProgrammatically = true
@@ -268,8 +282,9 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
 
     private func children(of item: Any?) -> [FileNode] {
         guard let node = item as? FileNode else {
-            return (starred.isEmpty ? [] : [starredGroup]) + (root.children ?? [])
+            return [workspaceNode] + (starred.isEmpty ? [] : [starredGroup]) + (root.children ?? [])
         }
+        if node.isWorkspace { return [] }
         if node.children == nil {
             node.reload()
             folders[node.url.path] = node
@@ -279,7 +294,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int { children(of: item).count }
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any { children(of: item)[index] }
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool { (item as? FileNode)?.isDirectory ?? false }
+    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        guard let node = item as? FileNode else { return false }
+        return node.isDirectory && !node.isWorkspace
+    }
     func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool { (item as? FileNode)?.isGroup ?? false }
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool { !((item as? FileNode)?.isGroup ?? false) }
 
@@ -289,6 +307,12 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         let cell = outlineView.makeView(withIdentifier: id, owner: self) as? NSTableCellView ?? makeCell(id, group: node.isGroup)
         if node.isGroup {
             cell.textField?.stringValue = "Starred"
+            return cell
+        }
+        if node.isWorkspace {
+            cell.textField?.stringValue = workspace.name
+            cell.textField?.isEditable = false
+            cell.imageView?.image = NSImage(systemSymbolName: "books.vertical", accessibilityDescription: nil)
             return cell
         }
         let name = node.url.lastPathComponent
@@ -332,7 +356,15 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
-        guard !isSelectingProgrammatically, let node = outline.item(atRow: outline.selectedRow) as? FileNode else { return }
+        guard !isSelectingProgrammatically else { return }
+        // Clicking empty space, ⌘-clicking the selected row or pressing
+        // Escape goes back to every note.
+        guard outline.selectedRow >= 0 else {
+            selectRow(of: workspaceNode)
+            delegate?.fileTree(self, showFolder: workspace.url)
+            return
+        }
+        guard let node = outline.item(atRow: outline.selectedRow) as? FileNode else { return }
         if node.isDirectory {
             delegate?.fileTree(self, showFolder: node.url)
         } else {
@@ -342,7 +374,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 
     @objc private func doubleClicked(_ sender: Any?) {
-        guard let node = outline.item(atRow: outline.clickedRow) as? FileNode else { return }
+        guard let node = outline.item(atRow: outline.clickedRow) as? FileNode, !node.isWorkspace else { return }
         if node.isDirectory {
             if outline.isItemExpanded(node) { outline.collapseItem(node) } else { outline.expandItem(node) }
         } else {
@@ -355,7 +387,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
         let row = outline.row(for: field)
-        guard let node = outline.item(atRow: row) as? FileNode else { return }
+        guard let node = outline.item(atRow: row) as? FileNode, !node.isWorkspace else { return }
         var name = field.stringValue.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-")
         let shown = !node.isDirectory && Files.isMarkdown(node.url)
             ? node.url.deletingPathExtension().lastPathComponent : node.url.lastPathComponent
@@ -415,8 +447,9 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
             let isStarred = starred.contains { $0.path == node.url.path }
             add(isStarred ? "Remove Star" : "Star", #selector(toggleStar(_:)), isStarred ? "star.slash" : "star")
         }
-        if node.parent !== starredGroup { add("Rename…", #selector(rename(_:)), "pencil") }
+        if node.parent !== starredGroup && !node.isWorkspace { add("Rename…", #selector(rename(_:)), "pencil") }
         add("Reveal in Finder", #selector(revealInFinder(_:)), "finder")
+        if node.isWorkspace { return }
         menu.addItem(.separator())
         add("Move to Trash", #selector(moveToTrash(_:)), "trash")
     }
@@ -505,7 +538,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 
     @objc private func moveToTrash(_ sender: Any?) {
-        guard let node = clickedNode, !node.isGroup else { return }
+        guard let node = clickedNode, !node.isGroup, !node.isWorkspace else { return }
         trash(node.url)
     }
 
@@ -524,7 +557,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     // MARK: Dragging
 
     func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-        guard let node = item as? FileNode, !node.isGroup, node.parent !== starredGroup else { return nil }
+        guard let node = item as? FileNode, !node.isGroup, !node.isWorkspace, node.parent !== starredGroup else { return nil }
         return node.url as NSURL
     }
 
@@ -564,5 +597,13 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         }
         folderChanged(folder)
         return done
+    }
+}
+
+/// The tree's outline. Escape clears the selection, which shows every note.
+final class FileOutlineView: NSOutlineView {
+    override func cancelOperation(_ sender: Any?) {
+        guard selectedRow >= 0 else { return super.cancelOperation(sender) }
+        deselectAll(sender)
     }
 }

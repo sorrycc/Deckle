@@ -4,7 +4,7 @@
 
 A workspace is a folder. Open one with File > Open Folder… (⌘O), by dropping a folder on the app, or from the switcher at the bottom of the sidebar. Quill reopens the last workspace and its tabs at launch. Hidden files and `node_modules` folders are left out.
 
-Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). Titles sort as a person reads them, so "Note 2" comes before "Note 10". Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
+Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). The workspace's own row, at the top of the tree, lists every note. Clicking empty space in the tree, ⌘-clicking the selected row or pressing Escape goes back to it. Titles sort as a person reads them, so "Note 2" comes before "Note 10". Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
 
 Image files open in a tab of their own, fitted to the pane, and pinch or ⌘-scroll zooms them. Other text files open with their code highlighted.
 
