@@ -259,6 +259,9 @@ final class EmptyStateView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// A hint only: clicks and drops go through to the list under it.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// A row between two hairlines, which the selection covers.

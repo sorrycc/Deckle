@@ -93,12 +93,18 @@ final class OutlineRail: NSView {
             level -= 1
             picks = headings.indices.filter { headings[$0].level <= level }
         }
-        // Too many still, or so few that the note's shape is lost: every so
-        // many headings of the level that didn't fit.
-        if picks.count > capacity || (level < 6 && picks.count < capacity / 3) {
-            let dense = level < 6 ? headings.indices.filter { headings[$0].level <= level + 1 } : picks
-            let step = Int((CGFloat(dense.count) / CGFloat(capacity)).rounded(.up))
-            picks = stride(from: 0, to: dense.count, by: max(1, step)).map { dense[$0] }
+        if picks.count > capacity {
+            // Even the top level is too much: every so many of them.
+            let step = Int((CGFloat(picks.count) / CGFloat(capacity)).rounded(.up))
+            picks = stride(from: 0, to: picks.count, by: max(1, step)).map { picks[$0] }
+        } else if level < 6 && picks.count < capacity / 3 {
+            // So few that the note's shape is lost: the level that fits keeps
+            // every tick, and the next level fills the rest with every so
+            // many of its headings.
+            let kept = Set(picks)
+            let more = headings.indices.filter { !kept.contains($0) && headings[$0].level == level + 1 }
+            let step = Int((CGFloat(more.count) / CGFloat(max(1, capacity - picks.count))).rounded(.up))
+            picks = (picks + stride(from: 0, to: more.count, by: max(1, step)).map { more[$0] }).sorted()
         }
         ticks = picks
         tickSpacing = picks.isEmpty ? Self.maxTickSpacing : min(Self.maxTickSpacing, room / CGFloat(picks.count))

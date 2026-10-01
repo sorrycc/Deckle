@@ -110,6 +110,15 @@ final class Styler {
         !hidesMarkers || (selection.location <= element.upperBound && selection.upperBound >= element.location)
     }
 
+    /// The part of a task's line whose syntax shows together: from the start
+    /// of the item through its box and the space after. The marker's element
+    /// is the whole line, but a task reveals only around its prefix, so
+    /// editing the text never moves it.
+    static func taskPrefix(of marker: QuillSpan, task: QuillSpan) -> NSRange {
+        let start = Int(marker.elem_start)
+        return NSRange(location: start, length: min(Int(task.end) + 1, Int(task.elem_end)) - start)
+    }
+
     private func trait(_ trait: NSFontDescriptor.SymbolicTraits, of font: NSFont) -> NSFont {
         let key = "\(font.fontName)|\(font.pointSize)|\(trait.rawValue)"
         if let cached = traitCache[key] { return cached }
@@ -253,7 +262,8 @@ final class Styler {
                 text.addAttribute(.backgroundColor, value: theme.highlight, range: r)
             case QuillListMarker:
                 let task = spans.first { $0.kindValue == QuillTaskMarker && $0.start >= span.end }
-                if span.flags == 0 && isMarkdown && !isRevealed(span.element) {
+                let revealed = task.map { isRevealed(Styler.taskPrefix(of: span, task: $0)) } ?? isRevealed(span.element)
+                if span.flags == 0 && isMarkdown && !revealed {
                     if task == nil {
                         // A bullet is drawn over the marker, which keeps its
                         // room so the line doesn't shift when the syntax shows.
@@ -262,7 +272,8 @@ final class Styler {
                     } else {
                         // A task's box stands in for its marker: the marker
                         // and the space after it go, so the box sits where a
-                        // bullet would and the text follows it as closely.
+                        // bullet would. The line shifts only when the
+                        // selection reaches the prefix, which shows it.
                         let gap = NSRange(location: r.location, length: min(content.upperBound, r.upperBound + 1) - r.location)
                         text.addAttributes([.font: hiddenFont, .foregroundColor: NSColor.clear], range: gap)
                     }
@@ -278,7 +289,9 @@ final class Styler {
                 style.headIndent = style.firstLineHeadIndent + ceil(prefix.size().width)
             case QuillTaskMarker:
                 let checked = span.flags != 0
-                if isMarkdown && !isRevealed(span.element) {
+                let marker = spans.first { $0.kindValue == QuillListMarker && $0.element == span.element && $0.end <= span.start }
+                let revealed = marker.map { isRevealed(Styler.taskPrefix(of: $0, task: span)) } ?? isRevealed(span.element)
+                if isMarkdown && !revealed {
                     // A box is drawn over the brackets, which keep their room.
                     text.addAttributes([.font: mono(for: lineFont), .foregroundColor: NSColor.clear], range: r)
                     decoration.checkboxes.append((r, checked))

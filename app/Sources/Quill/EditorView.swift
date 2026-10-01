@@ -366,11 +366,20 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         guard isMarkdown, styler.hidesMarkers, selection.length < 4000, storage.length > 0 else { return [] }
         let lines = (storage.string as NSString).paragraphRange(for: selection)
         var found: [NSRange] = []
-        for span in core.spans(in: lines) {
+        let spans = core.spans(in: lines)
+        for span in spans {
             switch span.kindValue {
             case QuillMarker, QuillCalloutTag, QuillThematicBreak, QuillImage, QuillTable, QuillMathBlock, QuillInlineMath,
                 QuillCodeBlock, QuillListMarker, QuillTaskMarker:
-                let element = span.element
+                var element = span.element
+                // A task's syntax shows around its prefix, not its whole line.
+                if span.kindValue == QuillListMarker || span.kindValue == QuillTaskMarker {
+                    let marker = span.kindValue == QuillListMarker ? span
+                        : spans.first { $0.kindValue == QuillListMarker && $0.element == span.element && $0.end <= span.start }
+                    let task = span.kindValue == QuillTaskMarker ? span
+                        : spans.first { $0.kindValue == QuillTaskMarker && $0.element == span.element && $0.start >= span.end }
+                    if let marker, let task { element = Styler.taskPrefix(of: marker, task: task) }
+                }
                 if selection.location <= element.upperBound && selection.upperBound >= element.location, found.last != element,
                     !found.contains(element)
                 {

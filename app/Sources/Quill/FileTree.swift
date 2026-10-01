@@ -178,6 +178,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         rebuildStarred()
         outline.reloadData()
         if !starred.isEmpty { outline.expandItem(starredGroup) }
+        updateEmptyState()
     }
 
     private func rebuildSwitcher() {
