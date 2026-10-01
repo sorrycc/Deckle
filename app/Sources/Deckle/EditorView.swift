@@ -72,6 +72,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         textView = EditorTextView(frame: .zero, textContainer: container)
         super.init(frame: .zero)
 
+        styler.isJapaneseDocument = CJK.isJapanese(text)
         storage.setAttributedString(NSAttributedString(string: text, attributes: styler.typingAttributes))
         storage.delegate = self
         contentStorage.delegate = self
@@ -276,7 +277,15 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     ) {
         guard editedMask.contains(.editedCharacters) else { return }
         let inserted = (textStorage.string as NSString).substring(with: editedRange)
-        let stale = core.edit(at: editedRange.location, oldLength: editedRange.length - delta, text: inserted)
+        var stale = core.edit(at: editedRange.location, oldLength: editedRange.length - delta, text: inserted)
+        // A note that turns Japanese, or stops being, redraws its lines of
+        // only Han characters in the other forms.
+        let japanese = CJK.isJapanese(textStorage.string)
+        if japanese != styler.isJapaneseDocument {
+            styler.isJapaneseDocument = japanese
+            widgetStore?.invalidateTables()
+            stale = NSRange(location: 0, length: textStorage.length)
+        }
         staleStyle = staleStyle.map { NSUnionRange($0, stale) } ?? stale
         // Editing ends before the styling is redrawn; textDidChange does it
         // for the user's edits, and this for any other.

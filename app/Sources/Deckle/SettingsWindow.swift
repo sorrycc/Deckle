@@ -69,6 +69,10 @@ private func form(_ rows: [(String, NSView)], width: CGFloat = 520) -> NSView {
 final class AppearancePane: NSViewController {
     private var swatches: [ThemeSwatch] = []
     private let fontPopup = NSPopUpButton()
+    private let cjkPopup = NSPopUpButton()
+    private let scriptControl = NSSegmentedControl(
+        labels: ["简体", "繁體 台灣", "繁體 香港"], trackingMode: .selectOne, target: nil, action: nil)
+    private let codePopup = NSPopUpButton()
     private let sizeField = NSTextField()
     private let sizeStepper = NSStepper()
 
@@ -97,6 +101,32 @@ final class AppearancePane: NSViewController {
         }
         fontPopup.target = self
         fontPopup.action = #selector(chooseFont(_:))
+
+        let families = NSFontManager.shared.availableFontFamilies.filter { !$0.hasPrefix(".") }
+        cjkPopup.addItem(withTitle: "System (PingFang, Hiragino)")
+        cjkPopup.lastItem?.representedObject = ""
+        cjkPopup.addItem(withTitle: "Serif (Songti, Hiragino Mincho)")
+        cjkPopup.lastItem?.representedObject = "serif"
+        cjkPopup.menu?.addItem(.separator())
+        for family in families where Self.hasHan(family) {
+            cjkPopup.addItem(withTitle: family)
+            cjkPopup.lastItem?.representedObject = family
+        }
+        cjkPopup.target = self
+        cjkPopup.action = #selector(chooseCJKFont(_:))
+        scriptControl.target = self
+        scriptControl.action = #selector(chooseScript(_:))
+        scriptControl.toolTip = "The forms of Han characters in lines without kana"
+
+        codePopup.addItem(withTitle: "System Monospaced")
+        codePopup.lastItem?.representedObject = ""
+        codePopup.menu?.addItem(.separator())
+        for family in families where Self.isMonospaced(family) {
+            codePopup.addItem(withTitle: family)
+            codePopup.lastItem?.representedObject = family
+        }
+        codePopup.target = self
+        codePopup.action = #selector(chooseCodeFont(_:))
         sizeField.formatter = { let f = NumberFormatter(); f.minimum = 9; f.maximum = 40; return f }()
         sizeField.alignment = .right
         sizeField.widthAnchor.constraint(equalToConstant: 44).isActive = true
@@ -109,7 +139,11 @@ final class AppearancePane: NSViewController {
         let size = NSStackView(views: [sizeField, sizeStepper, NSTextField(labelWithString: "pt")])
         size.spacing = 4
 
-        view = form([("Theme", grid), ("Font", fontPopup), ("Size", size)], width: 720)
+        view = form(
+            [
+                ("Theme", grid), ("Font", fontPopup), ("Chinese & Japanese", cjkPopup), ("Chinese script", scriptControl),
+                ("Code", codePopup), ("Size", size),
+            ], width: 820)
         preferredContentSize = view.fittingSize
         refresh()
     }
@@ -118,8 +152,31 @@ final class AppearancePane: NSViewController {
         for swatch in swatches { swatch.isChosen = swatch.theme.id == Settings.themeID }
         let family = Settings.editorFontFamily
         if family.isEmpty || fontPopup.item(withTitle: family) == nil { fontPopup.selectItem(at: 0) } else { fontPopup.selectItem(withTitle: family) }
+        select(Settings.cjkFontFamily, in: cjkPopup)
+        scriptControl.selectedSegment = CJK.chineseScripts.firstIndex(of: Settings.chineseScript) ?? 0
+        select(Settings.codeFontFamily, in: codePopup)
         sizeField.integerValue = Int(Settings.editorFontSize)
         sizeStepper.integerValue = Int(Settings.editorFontSize)
+    }
+
+    private func select(_ value: String, in popup: NSPopUpButton) {
+        let index = popup.indexOfItem(withRepresentedObject: value)
+        popup.selectItem(at: index >= 0 ? index : 0)
+    }
+
+    /// Whether `family` draws Han characters itself.
+    private static func hasHan(_ family: String) -> Bool {
+        guard let font = Fonts.font(family: family, size: 12) else { return false }
+        return font.coveredCharacterSet.contains(Unicode.Scalar(0x6C38)!)  // 永
+    }
+
+    /// Whether `family`'s Latin letters are all one width, which holds for
+    /// fonts with double-width Chinese too, such as Sarasa Mono.
+    private static func isMonospaced(_ family: String) -> Bool {
+        guard let font = Fonts.font(family: family, size: 12) else { return false }
+        if font.isFixedPitch { return true }
+        let width = { (text: String) in (text as NSString).size(withAttributes: [.font: font]).width }
+        return width("i") > 0 && abs(width("i") - width("M")) < 0.01
     }
 
     @objc private func chooseTheme(_ sender: ThemeSwatch) {
@@ -129,6 +186,18 @@ final class AppearancePane: NSViewController {
 
     @objc private func chooseFont(_ sender: NSPopUpButton) {
         Settings.editorFontFamily = sender.indexOfSelectedItem == 0 ? "" : sender.titleOfSelectedItem ?? ""
+    }
+
+    @objc private func chooseCJKFont(_ sender: NSPopUpButton) {
+        Settings.cjkFontFamily = sender.selectedItem?.representedObject as? String ?? ""
+    }
+
+    @objc private func chooseScript(_ sender: NSSegmentedControl) {
+        Settings.chineseScript = CJK.chineseScripts[max(0, sender.selectedSegment)]
+    }
+
+    @objc private func chooseCodeFont(_ sender: NSPopUpButton) {
+        Settings.codeFontFamily = sender.selectedItem?.representedObject as? String ?? ""
     }
 
     @objc private func sizeEntered(_ sender: NSTextField) {

@@ -51,6 +51,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+    <!-- Fonts that come with the app, under Resources/Fonts: LXGW WenKai Lite. -->
+    <key>ATSApplicationFontsPath</key><string>Fonts</string>
     <key>CFBundleDocumentTypes</key><array>
         <dict>
             <key>CFBundleTypeName</key><string>Markdown document</string>

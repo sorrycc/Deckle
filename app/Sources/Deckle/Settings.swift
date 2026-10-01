@@ -26,6 +26,30 @@ enum Settings {
         set { defaults.set(newValue, forKey: "editorFontFamily"); changed() }
     }
 
+    /// The face of Chinese and Japanese text: empty for the system's, which
+    /// picks PingFang or Hiragino by language; `serif` for Songti and
+    /// Hiragino Mincho; or an installed font family.
+    static var cjkFontFamily: String {
+        get { defaults.string(forKey: "cjkFontFamily") ?? "" }
+        set { defaults.set(newValue, forKey: "cjkFontFamily"); changed() }
+    }
+
+    /// The Chinese that Han characters are drawn as when the text has no
+    /// kana: `zh-Hans`, `zh-Hant` (Taiwan) or `zh-HK`.
+    static var chineseScript: String {
+        get {
+            let value = defaults.string(forKey: "chineseScript") ?? ""
+            return CJK.chineseScripts.contains(value) ? value : CJK.preferredChineseScript
+        }
+        set { defaults.set(newValue, forKey: "chineseScript"); changed() }
+    }
+
+    /// An installed font family for code, or empty for the system's.
+    static var codeFontFamily: String {
+        get { defaults.string(forKey: "codeFontFamily") ?? "" }
+        set { defaults.set(newValue, forKey: "codeFontFamily"); changed() }
+    }
+
     static var editorFontSize: CGFloat {
         get { let size = defaults.double(forKey: "editorFontSize"); return size >= 9 ? min(size, 40) : 15 }
         set { defaults.set(Double(newValue), forKey: "editorFontSize"); changed() }

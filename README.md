@@ -16,6 +16,7 @@ A fast Markdown editor for macOS, with a native AppKit interface and a Rust core
 - **Links both ways.** ⌘-click a link to follow it; hovering shows where it goes. A `[[link]]` to a note that doesn't exist creates it, and each note lists the notes that link to it.
 - **Typing helpers.** Lists and quotes continue on Return, `/` at the start of a line inserts a block, and `[[` completes note names. Pasted or dropped images are saved next to the note.
 - **Themes.** System, plus nine palettes in light and dark, with the font, size, line height and line width of your choice. A long note scrolls past its end, so the last lines can be read at eye level.
+- **Chinese and Japanese.** Each line is drawn in the forms of its language: Japanese where it has kana, and Simplified, Taiwan or Hong Kong Chinese, as set, for other Han characters. A note that is mostly Japanese draws its kanji-only lines in Japanese forms too. Chinese and Japanese can have a face of their own: the system's PingFang and Hiragino, Songti and Hiragino Mincho, the bundled LXGW WenKai Lite, or any installed font. Code can have its own font, such as one whose Chinese is exactly two columns wide.
 
 ## Requirements
 
@@ -54,6 +55,7 @@ Measured on the development machine with a release build:
 | `app/` | SwiftPM package with the AppKit app. No Xcode project is required. |
 | `app/Sources/CDeckleCore/deckle_core.h` | The C interface between the two. |
 | `app/Resources/Bundled/Renderer/` | KaTeX and Mermaid, loaded in an offscreen web view only when a note has math or a diagram. |
+| `app/Resources/Bundled/Fonts/` | LXGW WenKai Lite, Regular and Medium, under the SIL Open Font License (`OFL.txt`). The app registers them through `ATSApplicationFontsPath`. |
 | `scripts/bundle.sh` | Builds everything and assembles `build/Deckle.app`. |
 
 ## How the editor works
@@ -63,3 +65,5 @@ The text view is a TextKit 2 `NSTextView` over plain text. The core keeps a copy
 ## License
 
 [MIT](LICENSE)
+
+LXGW WenKai Lite is © LXGW and The Klee Project Authors, under the [SIL Open Font License 1.1](app/Resources/Bundled/Fonts/OFL.txt).

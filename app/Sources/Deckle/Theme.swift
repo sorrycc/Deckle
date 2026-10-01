@@ -156,14 +156,42 @@ struct Fonts {
     let size: CGFloat
     let body: NSFont
     let mono: NSFont
+    /// The face of Chinese and Japanese text, as `Settings.cjkFontFamily`
+    /// gives it.
+    let cjkFamily: String
+    /// The Chinese of Han characters in text without kana.
+    let chineseScript: String
 
-    static var current: Fonts { Fonts(family: Settings.editorFontFamily, size: Settings.editorFontSize) }
+    static var current: Fonts {
+        Fonts(
+            family: Settings.editorFontFamily, size: Settings.editorFontSize, cjkFamily: Settings.cjkFontFamily,
+            codeFamily: Settings.codeFontFamily, chineseScript: Settings.chineseScript)
+    }
 
-    init(family: String, size: CGFloat) {
+    init(family: String, size: CGFloat, cjkFamily: String = "", codeFamily: String = "", chineseScript: String = "zh-Hans") {
         self.size = size
-        body = (family.isEmpty ? nil : NSFont(name: family, size: size) ?? NSFontManager.shared.font(
-            withFamily: family, traits: [], weight: 5, size: size)) ?? .systemFont(ofSize: size)
-        mono = .monospacedSystemFont(ofSize: (size * 0.9).rounded(), weight: .regular)
+        self.cjkFamily = cjkFamily
+        self.chineseScript = chineseScript
+        body = Fonts.font(family: family, size: size) ?? .systemFont(ofSize: size)
+        let monoSize = (size * 0.9).rounded()
+        mono = Fonts.font(family: codeFamily, size: monoSize) ?? .monospacedSystemFont(ofSize: monoSize, weight: .regular)
+    }
+
+    /// The regular face of an installed `family`, or nil for none or empty.
+    static func font(family: String, size: CGFloat) -> NSFont? {
+        guard !family.isEmpty else { return nil }
+        return NSFont(name: family, size: size)
+            ?? NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
+    }
+
+    /// The code font at `size`.
+    func mono(ofSize size: CGFloat) -> NSFont {
+        NSFontManager.shared.convert(mono, toSize: size)
+    }
+
+    /// Whether `font` sets code, which keeps its own Chinese and Japanese.
+    func isMono(_ font: NSFont) -> Bool {
+        font.isFixedPitch || font.familyName == mono.familyName
     }
 
     func heading(_ level: Int) -> NSFont {
@@ -172,9 +200,49 @@ struct Fonts {
         return Fonts.with(base, trait: .bold)
     }
 
+    /// The family that draws the Chinese or Japanese of `language`, or nil
+    /// to leave it to the system, which chooses by the text's language.
+    func cjkFamily(for language: String) -> String? {
+        switch cjkFamily {
+        case "": nil
+        case "serif": language == "ja" ? "Hiragino Mincho ProN" : language == "zh-Hans" ? "Songti SC" : "Songti TC"
+        default: cjkFamily
+        }
+    }
+
+    /// The chosen face for the Chinese or Japanese of `language` in text
+    /// set in `font`, at its size and weight, or nil to leave them to the
+    /// system. It is set on those characters directly rather than as a
+    /// fallback: the system font spaces a fallback's punctuation for its own
+    /// PingFang, which leaves gaps after other faces' commas, and a fallback
+    /// keeps its own weight, so a bold line would get regular characters.
+    func cjkFont(for font: NSFont, language: String) -> NSFont? {
+        guard font.pointSize >= 1, !isMono(font), let family = cjkFamily(for: language),
+            var cjk = Fonts.font(family: family, size: font.pointSize), cjk.familyName != font.familyName
+        else { return nil }
+        if font.fontDescriptor.symbolicTraits.contains(.bold) || NSFontManager.shared.weight(of: font) >= 8 {
+            cjk = Fonts.with(cjk, trait: .bold)
+        }
+        if font.fontDescriptor.symbolicTraits.contains(.italic) {
+            cjk = Fonts.with(cjk, trait: .italic)
+        }
+        return cjk
+    }
+
     /// `font` with a bold or italic trait added, where the family has one.
+    /// A family without a bold, such as LXGW WenKai, gets its next heavier
+    /// weight instead.
     static func with(_ font: NSFont, trait: NSFontDescriptor.SymbolicTraits) -> NSFont {
         let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(trait))
-        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
+        if let result = NSFont(descriptor: descriptor, size: font.pointSize),
+            result.fontName != font.fontName || font.fontDescriptor.symbolicTraits.contains(trait)
+        {
+            return result
+        }
+        if trait == .bold {
+            let heavier = NSFontManager.shared.convertWeight(true, of: font)
+            if heavier.fontName != font.fontName { return heavier }
+        }
+        return font
     }
 }

@@ -114,6 +114,12 @@ final class WidgetStore: WidgetSource {
         rendered.removeAll()
     }
 
+    /// Drops the tables only: their cells' text, unlike drawn math and
+    /// diagrams, takes the forms of the note's language.
+    func invalidateTables() {
+        tables.removeAll()
+    }
+
     func applyWidgets(
         to text: NSMutableAttributedString, range: NSRange, spans: [DeckleSpan], style: NSMutableParagraphStyle,
         decoration: inout LineDecoration, styler: Styler, hide: (NSRange) -> Void
@@ -305,7 +311,9 @@ final class WidgetStore: WidgetSource {
             }
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = alignment
-            let cell = Self.inlineText(string.substring(with: span.range), font: header ? Fonts.with(body, trait: .bold) : body, styler: styler)
+            let source = string.substring(with: span.range)
+            let cell = Self.inlineText(source, font: header ? Fonts.with(body, trait: .bold) : body, styler: styler)
+            styler.localize(cell, language: styler.cjkLanguage(of: source))
             cell.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: cell.length))
             row.append(TableWidget.Cell(text: cell, alignment: alignment))
         }
@@ -323,7 +331,7 @@ final class WidgetStore: WidgetSource {
         let rules: [(String, (NSMutableAttributedString, NSRange) -> Void)] = [
             (#"\*\*(.+?)\*\*|__(.+?)__"#, { s, r in s.addAttribute(.font, value: Fonts.with(font, trait: .bold), range: r) }),
             (#"(?<![*\w])\*(?!\*)(.+?)\*|(?<!\w)_(.+?)_"#, { s, r in s.addAttribute(.font, value: Fonts.with(font, trait: .italic), range: r) }),
-            (#"`([^`]+)`"#, { s, r in s.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular), .foregroundColor: theme.codeText], range: r) }),
+            (#"`([^`]+)`"#, { s, r in s.addAttributes([.font: styler.fonts.mono(ofSize: font.pointSize * 0.9), .foregroundColor: theme.codeText], range: r) }),
             (#"~~(.+?)~~"#, { s, r in s.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r) }),
             (#"\[\[(?:[^\]|]*\|)?([^\]]+)\]\]"#, { s, r in s.addAttribute(.foregroundColor, value: theme.link, range: r) }),
             (#"\[([^\]]+)\]\([^)]*\)"#, { s, r in s.addAttribute(.foregroundColor, value: theme.link, range: r) }),

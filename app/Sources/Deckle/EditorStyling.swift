@@ -67,8 +67,13 @@ final class Styler {
     /// Where images and other widgets of the document come from.
     weak var widgets: WidgetSource?
 
+    /// Whether the document is mostly Japanese, which makes its lines of
+    /// only Han characters Japanese too.
+    var isJapaneseDocument = false
+
     private var base: [NSAttributedString.Key: Any] = [:]
     private var traitCache: [String: NSFont] = [:]
+    private var heightCache: [String: CGFloat] = [:]
     /// Too small to see or to take room.
     private let hiddenFont = NSFont.systemFont(ofSize: 0.01)
 
@@ -90,6 +95,7 @@ final class Styler {
         fonts = Fonts.current
         hidesMarkers = Settings.hidesMarkers
         traitCache.removeAll()
+        heightCache.removeAll()
         base = [.font: isMarkdown ? fonts.body : fonts.mono, .foregroundColor: theme.text]
     }
 
@@ -100,9 +106,57 @@ final class Styler {
         font.ascender - font.descender + font.leading
     }
 
-    func lineHeight(for font: NSFont, tight: Bool = false) -> CGFloat {
+    /// The height of a line of `font` with the characters of `language`
+    /// in it: the taller of the font and the font that draws them, which
+    /// for PingFang and Hiragino is taller than most Latin fonts. Code keeps
+    /// its own height, so a block's lines stay even.
+    func naturalHeight(of font: NSFont, language: String?) -> CGFloat {
+        let own = Styler.naturalHeight(of: font)
+        guard let language, font.pointSize >= 1, !fonts.isMono(font) else { return own }
+        let key = "\(font.fontName)|\(font.pointSize)|\(language)"
+        if let cached = heightCache[key] { return cached }
+        let cjk: CTFont = cjkFont(for: font, language: language) ?? CTFontCreateForStringWithLanguage(
+            font, (language == "ja" ? "あ" : "永") as CFString, CFRange(location: 0, length: 1), language as CFString)
+        let result = max(own, CTFontGetAscent(cjk) + CTFontGetDescent(cjk) + CTFontGetLeading(cjk))
+        heightCache[key] = result
+        return result
+    }
+
+    func lineHeight(for font: NSFont, language: String? = nil, tight: Bool = false) -> CGFloat {
         let multiple = tight ? min(Settings.lineHeight, 1.4) : Settings.lineHeight
-        return (Styler.naturalHeight(of: font) * multiple).rounded(.up)
+        return (naturalHeight(of: font, language: language) * multiple).rounded(.up)
+    }
+
+    /// The language `text` is drawn in, by its kana and Han characters.
+    func cjkLanguage(of text: String) -> String? {
+        CJK.language(of: text, chinese: fonts.chineseScript, japaneseDocument: isJapaneseDocument)
+    }
+
+    /// The chosen face for the Chinese or Japanese of `language` in text
+    /// set in `font`, or nil for the system's.
+    private func cjkFont(for font: NSFont, language: String) -> NSFont? {
+        let key = "cjk|\(font.fontName)|\(font.pointSize)|\(language)"
+        if let cached = traitCache[key] { return cached }
+        let result = fonts.cjkFont(for: font, language: language)
+        if let result { traitCache[key] = result }
+        return result
+    }
+
+    /// Tags `text` with its Chinese or Japanese, so its Han characters take
+    /// that language's forms, and sets them in the chosen face. Runs last,
+    /// once the fonts of bold, italic and headings are known.
+    func localize(_ text: NSMutableAttributedString, language: String?) {
+        guard let language else { return }
+        let full = NSRange(location: 0, length: text.length)
+        text.addAttribute(.languageIdentifier, value: language, range: full)
+        guard fonts.cjkFamily(for: language) != nil else { return }
+        let string = text.string as NSString
+        for run in CJK.runs(in: string) {
+            text.enumerateAttribute(.font, in: run) { value, sub, _ in
+                guard let font = value as? NSFont, let cjk = self.cjkFont(for: font, language: language) else { return }
+                text.addAttribute(.font, value: cjk, range: sub)
+            }
+        }
     }
 
     /// Whether the syntax of `element` shows: the selection touches it.
@@ -148,7 +202,7 @@ final class Styler {
     private func mono(for font: NSFont) -> NSFont {
         let key = "mono|\(font.pointSize)"
         if let cached = traitCache[key] { return cached }
-        let result = NSFont.monospacedSystemFont(ofSize: (font.pointSize * 0.9).rounded(), weight: .regular)
+        let result = fonts.mono(ofSize: (font.pointSize * 0.9).rounded())
         traitCache[key] = result
         return result
     }
@@ -413,12 +467,15 @@ final class Styler {
             widgets.applyWidgets(to: text, range: range, spans: spans, style: style, decoration: &decoration, styler: self, hide: hide)
         }
 
+        let language = cjkLanguage(of: text.string)
+        localize(text, language: language)
         decoration.fontSize = lineFont.pointSize
-        let height = decoration.lineHeight ?? lineHeight(for: lineFont, tight: tight)
+        let natural = naturalHeight(of: lineFont, language: language)
+        let height = decoration.lineHeight ?? lineHeight(for: lineFont, language: language, tight: tight)
         style.minimumLineHeight = height
         style.maximumLineHeight = height
         // A taller line puts its extra room above the text; this centers it.
-        let lift = ((height - Styler.naturalHeight(of: lineFont)) / 2).rounded(.down)
+        let lift = ((height - natural) / 2).rounded(.down)
         text.addAttributes([.paragraphStyle: style, .baselineOffset: lift], range: full)
         for (r, shift) in shifts {
             text.addAttribute(.baselineOffset, value: lift + shift, range: r)
