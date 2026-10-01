@@ -219,7 +219,8 @@ final class ImagePreview: NSView {
     override func layout() {
         super.layout()
         // Fits a large image to the pane once, and leaves the zoom alone after.
-        guard !fitted, let size = imageView.image?.size, size.width > 0, bounds.width > 0 else { return }
+        let size = imageView.frame.size
+        guard !fitted, imageView.image != nil, size.width > 0, size.height > 0, bounds.width > 0 else { return }
         fitted = true
         let visible = scrollView.frame.size
         let scale = min(1, min((visible.width - 40) / size.width, (visible.height - 40) / size.height))

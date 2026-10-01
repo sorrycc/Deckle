@@ -129,6 +129,9 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
             scheduleOutline()
         }
         applyAppearance()
+        // The elements at the insertion point show their syntax from the
+        // start, so moving away from them hides it again.
+        revealed = elements(touching: textView.selectedRange())
         NotificationCenter.default.addObserver(
             self, selector: #selector(appearanceChanged(_:)), name: .appearanceDidChange, object: nil)
     }
@@ -370,7 +373,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         for span in spans {
             switch span.kindValue {
             case QuillMarker, QuillCalloutTag, QuillThematicBreak, QuillImage, QuillTable, QuillMathBlock, QuillInlineMath,
-                QuillCodeBlock, QuillListMarker, QuillTaskMarker:
+                QuillCodeBlock, QuillFrontMatter, QuillListMarker, QuillTaskMarker:
                 var element = span.element
                 // A task's syntax shows around its prefix, not its whole line.
                 if span.kindValue == QuillListMarker || span.kindValue == QuillTaskMarker {

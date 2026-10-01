@@ -187,7 +187,11 @@ final class Styler {
                 let isCode = span.kindValue == QuillCodeBlock
                 lineFont = fonts.mono
                 tight = true
-                let isFence = span.flags & UInt16(QuillCodeFenceOpen | QuillCodeFenceClose) != 0
+                // Front matter's fences carry no flag: they are its first
+                // and last lines.
+                let isFence = isCode
+                    ? span.flags & UInt16(QuillCodeFenceOpen | QuillCodeFenceClose) != 0
+                    : span.start == span.elem_start || span.end == span.elem_end
                 let revealed = isRevealed(span.element)
                 // A fence keeps its line, as the block's padding, but shows
                 // its text only while the selection is in the block.

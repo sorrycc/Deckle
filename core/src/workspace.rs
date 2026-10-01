@@ -341,8 +341,8 @@ fn plain(line: &str) -> String {
                 }
             }
             ']' => {
-                // A link's destination is left out.
-                if chars.peek() == Some(&'(') {
+                // A link's destination is left out, when it is all there.
+                if chars.peek() == Some(&'(') && chars.clone().any(|d| d == ')') {
                     for d in chars.by_ref() {
                         if d == ')' {
                             break;
@@ -869,7 +869,17 @@ fn plain_preview(line: &str, at: usize, len: usize) -> (String, u32) {
     while !line.is_char_boundary(stop) {
         stop += 1;
     }
-    let (before, hit, after) = (&line[start..at], &line[at..end], &line[end..stop]);
+    let (before, hit) = (&line[start..at], &line[at..end]);
+    // A match in the target of a [[target|label]] reads as the target: the
+    // alias after the match goes, since neither half sees the whole link.
+    let mut after = line[end..stop].to_string();
+    if let Some(open) = line[..at].rfind("[[").filter(|&o| !line[o..at].contains("]]"))
+        && let Some(close) = line[end..].find("]]").map(|i| end + i)
+        && let Some(bar) = line[open + 2..close].find('|').map(|i| open + 2 + i)
+        && end <= bar
+    {
+        after = format!("{}{}", &line[end..bar], &line[(close + 2).min(stop)..stop]);
+    }
     // plain() trims its ends, so a mark stands in for the match while each
     // side is cleaned, and the space beside the match survives.
     const MARK: char = '\u{1}';
@@ -949,6 +959,18 @@ mod tests {
         let (text, column) = plain_preview("## Plan of record", 0, 2);
         assert_eq!(text, "## Plan of record");
         assert_eq!(column, 0);
+
+        // A match inside a link's destination, and in an aliased wikilink's target.
+        let line = "See [the docs](https://example.com/guide) today";
+        let at = line.find("example").unwrap();
+        let (text, column) = plain_preview(line, at, 7);
+        assert_eq!(text, "See the docs(https://example.com/guide) today");
+        assert_eq!(&text[column as usize..column as usize + 7], "example");
+        let line = "A [[Project Plan|a pass]] here";
+        let at = line.find("Plan").unwrap();
+        let (text, column) = plain_preview(line, at, 4);
+        assert_eq!(text, "A Project Plan here");
+        assert_eq!(&text[column as usize..column as usize + 4], "Plan");
 
         // A match inside a wikilink's target, and a long line cut short.
         let long = format!("{}[[Note 42]] tail", "word ".repeat(40));

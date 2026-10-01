@@ -49,6 +49,8 @@ final class DecoratedFragment: NSTextLayoutFragment {
     /// A rectangle rounded at the top, the bottom, both or neither.
     private func path(_ rect: CGRect, radius: CGFloat, top: Bool, bottom: Bool) -> NSBezierPath {
         let path = NSBezierPath()
+        // A folded line, such as a hidden fence, is shorter than a corner.
+        let radius = max(0, min(radius, top && bottom ? rect.height / 2 : rect.height))
         let (minX, maxX, minY, maxY) = (rect.minX, rect.maxX, rect.minY, rect.maxY)
         let t = top ? radius : 0
         let b = bottom ? radius : 0
@@ -90,19 +92,20 @@ final class DecoratedFragment: NSTextLayoutFragment {
             color.withAlphaComponent(0.1).setFill()
             path(rect, radius: 8, top: d.calloutFirst, bottom: d.calloutLast).fill()
             if let name = d.calloutName {
+                // On the first line of text, which the padding above sits over.
+                let midY = area.minY + (textLineFragments.first?.typographicBounds.midY ?? area.height / 2)
                 let symbol = Styler.calloutSymbols[min(5, d.callout)]
                 let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold).applying(.init(paletteColors: [color]))
                 if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)?.withSymbolConfiguration(config) {
                     let size = image.size
-                    image.draw(in: NSRect(
-                        x: rect.minX + 10, y: area.minY + (area.height - size.height) / 2, width: size.width, height: size.height))
+                    image.draw(in: NSRect(x: rect.minX + 10, y: midY - size.height / 2, width: size.width, height: size.height))
                 }
                 if !d.calloutHasTitle {
                     let text = NSAttributedString(string: name, attributes: [
                         .font: NSFont.systemFont(ofSize: NSFont.systemFontSize + 1, weight: .semibold), .foregroundColor: color,
                     ])
                     let size = text.size()
-                    text.draw(at: NSPoint(x: rect.minX + 33, y: area.minY + (area.height - size.height) / 2))
+                    text.draw(at: NSPoint(x: rect.minX + 33, y: midY - size.height / 2))
                 }
             }
         } else if d.quoteDepth > 0 {
