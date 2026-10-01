@@ -9,13 +9,13 @@ A fast Markdown editor for macOS, with a native AppKit interface and a Rust core
 ## Features
 
 - **Live-styled Markdown.** Headings, emphasis, links, code and quotes are styled as you type. The syntax around them is hidden except where the selection is. List markers become bullets and task boxes, and code fences keep their place but show only while you edit the block.
-- **Rich blocks in place.** Images, tables, math (KaTeX) and Mermaid diagrams are drawn in place of their source and turn back into source when the insertion point enters them.
+- **Rich blocks in place.** Images, tables, math (KaTeX) and Mermaid diagrams are drawn in place of their source and turn back into source when the insertion point enters them. Code blocks name their language and offer a Copy button on hover.
 - **Extended syntax.** Wikilinks, footnotes, tasks, callouts, superscript and subscript, `==highlights==`, and highlighted code in about 20 languages. Front matter folds into a small block of properties above the note.
-- **Workspaces.** Any folder is a workspace: a file tree with starred files, a note list with two-line excerpts and thumbnails, and tabs with back and forward. Image and code files open in tabs of their own.
+- **Workspaces.** Any folder is a workspace: a file tree with starred files, a note list with two-line excerpts and thumbnails, and tabs with back and forward. Image and code files open in tabs of their own. A Welcome window and File > Open Recent bring back the folders opened before.
 - **Quick open, search and commands.** ⌘P opens any file, ⇧⌘F searches the text of every note and shows each match as it reads, and ⇧⌘P runs any menu command.
-- **Links both ways.** ⌘-click a link to follow it. A `[[link]]` to a note that doesn't exist creates it, and each note lists the notes that link to it.
+- **Links both ways.** ⌘-click a link to follow it; hovering shows where it goes. A `[[link]]` to a note that doesn't exist creates it, and each note lists the notes that link to it.
 - **Typing helpers.** Lists and quotes continue on Return, `/` at the start of a line inserts a block, and `[[` completes note names. Pasted or dropped images are saved next to the note.
-- **Themes.** System, plus nine palettes in light and dark, with the font, size, line height and line width of your choice.
+- **Themes.** System, plus nine palettes in light and dark, with the font, size, line height and line width of your choice. A long note scrolls past its end, so the last lines can be read at eye level.
 
 ## Requirements
 

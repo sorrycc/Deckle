@@ -633,11 +633,24 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         do {
             try text.write(to: url, atomically: true, encoding: .utf8)
             isDirty = false
+            saveFailed = false
             delegate?.editorDidSave(self)
         } catch {
             NSLog("Quill: could not save \(url.path): \(error.localizedDescription)")
+            // Said once: every edit tries again, and the file may stay
+            // read-only for a while.
+            guard !saveFailed else { return }
+            saveFailed = true
+            let alert = NSAlert()
+            alert.messageText = "The note couldn't be saved"
+            alert.informativeText = "\(url.lastPathComponent) couldn't be written. \(error.localizedDescription) Your edits stay in the editor, and Quill will try again after the next change."
+            alert.alertStyle = .warning
+            if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
         }
     }
+
+    /// The last save failed, and the user has been told.
+    private var saveFailed = false
 
     /// The file moved.
     func moved(to url: URL) {
