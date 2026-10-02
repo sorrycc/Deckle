@@ -2,23 +2,30 @@
   <img src="app/Resources/Deckle-1024.png" width="128" height="128" alt="Deckle icon">
 </p>
 
-# Deckle
+<h1 align="center">Deckle</h1>
 
-A fast Markdown editor for macOS, with a native AppKit interface and a Rust core. Notes stay plain `.md` files in a folder of your choosing.
+<p align="center">A fast, native Markdown editor for macOS.</p>
+
+<!-- <p align="center"><img src="docs/screenshot.png" alt="Deckle screenshot"></p> -->
+
+Deckle pairs an AppKit interface with a Rust core. Notes are plain `.md` files in a folder you choose.
+
+> **Status:** early development. Deckle requires macOS 26 and is built from source.
 
 ## Features
 
-- **Live-styled Markdown.** Headings, emphasis, links, code and quotes are styled as you type. The syntax around them is hidden except where the selection is. List markers become bullets and task boxes, and code fences keep their place but show only while you edit the block.
-- **Rich blocks in place.** Images, tables, math (KaTeX) and Mermaid diagrams are drawn in place of their source and turn back into source when the insertion point enters them. Code blocks name their language and offer a Copy button on hover.
-- **Extended syntax.** Wikilinks, footnotes, tasks, callouts, superscript and subscript, `==highlights==`, and highlighted code in about 20 languages. Front matter folds into a small block of properties above the note.
-- **Workspaces.** Any folder is a workspace: a file tree with starred files, a note list with two-line excerpts and thumbnails, and tabs with back and forward. Image and code files open in tabs of their own. A Welcome window and File > Open Recent bring back the folders opened before.
-- **Keyboard.** The arrow keys walk the file tree and the note list, and Return hands the editor the keyboard. ⇧⌘T reopens the last closed tab, tabs remember where you were, and the Format menu holds every style with its shortcut. Help > Deckle Help opens the guide in a tab.
-- **Quick open, search and commands.** ⌘P opens any file, ⇧⌘F searches the text of every note and shows each match as it reads, and ⇧⌘P runs any menu command.
-- **Links both ways.** ⌘-click a link to follow it; hovering shows where it goes. A `[[link]]` to a note that doesn't exist creates it, and each note lists the notes that link to it.
-- **Typing helpers.** Lists and quotes continue on Return, `/` at the start of a line inserts a block, and `[[` completes note names. Pasted or dropped images are saved next to the note.
-- **Themes.** System, plus nine palettes in light and dark, with the font, size, line height and line width of your choice. A theme colors the whole window, its panels, the diagrams and the selection, not only the page. A long note scrolls past its end, so the last lines can be read at eye level.
-- **Print and export.** A note prints as it is drawn, images, tables, math and diagrams included, and File > Export as PDF writes the same pages to a file.
-- **Chinese and Japanese.** Each line is drawn in the forms of its language: Japanese where it has kana, and Simplified, Taiwan or Hong Kong Chinese, as set, for other Han characters. A note that is mostly Japanese draws its kanji-only lines in Japanese forms too. Chinese and Japanese can have a face of their own: the system's PingFang and Hiragino, Songti and Hiragino Mincho, the bundled LXGW WenKai Lite, or any installed font. Code can have its own font, such as one whose Chinese is exactly two columns wide.
+- **Live styling.** Markdown is styled as you type, with syntax shown only around the selection.
+- **Rich blocks.** Images, tables, KaTeX math and Mermaid diagrams render inline.
+- **Extended syntax.** Wikilinks, footnotes, tasks, callouts, highlights, front matter and code highlighting in about 20 languages.
+- **Workspaces.** A file tree, a note list with previews, and tabs with history.
+- **Search and commands.** Quick open (⌘P), full-text search (⇧⌘F) and a command palette (⇧⌘P).
+- **Backlinks.** Follow links with ⌘-click and see which notes link to the current one.
+- **Typing helpers.** List continuation, a `/` block menu, note-name completion and image paste.
+- **Themes.** Nine light and dark palettes with configurable fonts and line width.
+- **Print and PDF export.** Output matches the editor, including math and diagrams.
+- **Chinese and Japanese.** Per-line glyph forms and separate font choices for CJK text.
+
+See the [user guide](docs/usage.md) for details.
 
 ## Requirements
 
@@ -30,42 +37,29 @@ A fast Markdown editor for macOS, with a native AppKit interface and a Rust core
 ```sh
 scripts/bundle.sh                    # release build; pass `debug` for a debug build
 open build/Deckle.app
-open -a build/Deckle.app ~/Notes      # open a folder as the workspace
+open -a build/Deckle.app ~/Notes     # open a folder as the workspace
 ```
 
-The script builds the Rust core and the Swift app, then assembles an ad-hoc signed `build/Deckle.app`. `DECKLE_OUT` and `DECKLE_BUNDLE_ID` build a second copy with settings of its own.
+The script builds the Rust core and the Swift app, then assembles an ad-hoc signed `build/Deckle.app`. Set `DECKLE_OUT` and `DECKLE_BUNDLE_ID` to build a separate copy with its own settings.
 
-`cargo test --release` runs the core's tests. One checks every edit against a fresh parse of the whole note, and one prints parse and edit times for a document of about 800 KB.
-
-## Performance
-
-Measured on the development machine with a release build:
-
-| | |
-|---|---|
-| Typing in the middle of a 300 KB note | 1.4 ms median, 6 ms worst per keystroke, including layout and drawing |
-| Window shown after launch | about 360 ms warm; over a second on the first launch after a build, while macOS checks the new binary |
-| 50,000-note workspace | file list ready in 0.4 s, full index in 2.1 s, both on background threads |
-
-`build/Deckle.app/Contents/MacOS/Deckle -timing YES` prints launch and indexing times. `-benchmark 300` types 300 characters into the open note and prints the time each took. See [Usage](docs/usage.md) for the other launch arguments.
+Run the core's tests with `cargo test --release`.
 
 ## Project layout
 
 | Path | Description |
 |---|---|
-| `core/` | Rust static library: parses Markdown into style spans, highlights code, indexes and watches the workspace, and runs search. |
-| `app/` | SwiftPM package with the AppKit app. No Xcode project is required. |
-| `app/Sources/CDeckleCore/deckle_core.h` | The C interface between the two. |
-| `app/Resources/Bundled/Renderer/` | KaTeX and Mermaid, loaded in an offscreen web view only when a note has math or a diagram. |
-| `app/Resources/Bundled/Fonts/` | LXGW WenKai Lite, Regular and Medium, under the SIL Open Font License (`OFL.txt`). The app registers them through `ATSApplicationFontsPath`. |
-| `scripts/bundle.sh` | Builds everything and assembles `build/Deckle.app`. |
+| `core/` | Rust library: Markdown parsing, code highlighting, workspace indexing and search |
+| `app/` | SwiftPM package for the AppKit app |
+| `app/Sources/CDeckleCore/deckle_core.h` | C interface between the core and the app |
+| `app/Resources/Bundled/` | Bundled KaTeX, Mermaid and fonts |
+| `scripts/bundle.sh` | Build and packaging script |
 
-## How the editor works
+## Documentation
 
-The text view is a TextKit 2 `NSTextView` over plain text. The core keeps a copy of the text and splits it into sections at points where a new top-level block must begin, such as headings, and parses each section with pulldown-cmark. An edit reparses only the sections it touches and reports the range whose styling changed. Styling is applied when a paragraph is laid out, through the content storage's delegate, so the text storage, undo and the saved file stay plain Markdown. A custom layout fragment draws code block backgrounds, quote bars, callouts and widgets.
+- [User guide](docs/usage.md)
+- [Architecture](docs/architecture.md)
+- [Performance](docs/performance.md)
 
 ## License
 
-[MIT](LICENSE)
-
-LXGW WenKai Lite is © LXGW and The Klee Project Authors, under the [SIL Open Font License 1.1](app/Resources/Bundled/Fonts/OFL.txt).
+[MIT](LICENSE). LXGW WenKai Lite is © LXGW and The Klee Project Authors, under the [SIL Open Font License 1.1](app/Resources/Bundled/Fonts/OFL.txt).
