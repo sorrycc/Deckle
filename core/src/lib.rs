@@ -228,6 +228,15 @@ pub unsafe extern "C" fn deckle_ws_resolve_link(ws: *const Workspace, target: *c
     into_c(unsafe { &*ws }.resolve_link(&unsafe { cstr(target) }, &unsafe { cstr(from) }))
 }
 
+/// How many notes link to the note at `path`, from the index alone.
+///
+/// # Safety
+/// `ws` must be a live workspace and `path` a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn deckle_ws_backlink_count(ws: *const Workspace, path: *const c_char) -> u32 {
+    unsafe { &*ws }.backlink_count(&unsafe { cstr(path) })
+}
+
 /// The notes linking to the note at `path`, as a JSON array of
 /// {path, title, lines: [{line, text, offset}]}. Free with `deckle_string_free`.
 ///

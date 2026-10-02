@@ -1,8 +1,10 @@
 import AppKit
 
 extension Notification.Name {
-    /// The look of the editor changed: theme, font or layout.
+    /// The look of the editor changed: theme, font or line height.
     static let appearanceDidChange = Notification.Name("DeckleAppearanceDidChange")
+    /// The line width changed, which a layout takes care of.
+    static let editorLayoutDidChange = Notification.Name("DeckleEditorLayoutDidChange")
 }
 
 /// Every setting the Settings window shows, stored in user defaults. Launch
@@ -11,8 +13,28 @@ extension Notification.Name {
 enum Settings {
     static let defaults = UserDefaults.standard
 
+    private static var changePending = false
+    private static var layoutChangePending = false
+
+    /// Tells the editors once a burst of changes settles, so a slider's
+    /// drag restyles each note once per turn of the run loop rather than
+    /// once per tick.
     private static func changed() {
-        NotificationCenter.default.post(name: .appearanceDidChange, object: nil)
+        guard !changePending else { return }
+        changePending = true
+        DispatchQueue.main.async {
+            changePending = false
+            NotificationCenter.default.post(name: .appearanceDidChange, object: nil)
+        }
+    }
+
+    private static func layoutChanged() {
+        guard !layoutChangePending else { return }
+        layoutChangePending = true
+        DispatchQueue.main.async {
+            layoutChangePending = false
+            NotificationCenter.default.post(name: .editorLayoutDidChange, object: nil)
+        }
     }
 
     static var themeID: String {
@@ -64,7 +86,7 @@ enum Settings {
     /// The widest a line of text gets, in points.
     static var lineWidth: CGFloat {
         get { let value = defaults.double(forKey: "lineWidth"); return value >= 360 ? value : 760 }
-        set { defaults.set(Double(newValue), forKey: "lineWidth"); changed() }
+        set { defaults.set(Double(newValue), forKey: "lineWidth"); layoutChanged() }
     }
 
     /// Shows Markdown's syntax only around the selection.

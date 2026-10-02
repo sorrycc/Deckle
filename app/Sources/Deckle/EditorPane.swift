@@ -1,5 +1,15 @@
 import AppKit
 
+/// A view that reports light and dark changes, for its layer's colors.
+final class AppearanceView: NSView {
+    var onAppearanceChange: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onAppearanceChange?()
+    }
+}
+
 /// The right column: the selected tab's editor or preview over the status bar.
 final class EditorPaneController: NSViewController {
     let statusBar = StatusBar()
@@ -7,7 +17,8 @@ final class EditorPaneController: NSViewController {
     private weak var shown: NSView?
 
     override func loadView() {
-        let root = NSView()
+        let root = AppearanceView()
+        root.onAppearanceChange = { [weak self] in self?.applyTheme() }
         root.wantsLayer = true
         for view in [container, statusBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -38,8 +49,8 @@ final class EditorPaneController: NSViewController {
         }
     }
 
-    override func viewDidLayout() {
-        super.viewDidLayout()
+    override func viewDidAppear() {
+        super.viewDidAppear()
         applyTheme() // layer colors don't follow light and dark changes on their own
     }
 

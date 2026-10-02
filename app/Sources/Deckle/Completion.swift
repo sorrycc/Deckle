@@ -56,8 +56,11 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         glass.cornerRadius = 12
         glass.contentView = scroll
         panel.contentView = glass
+        self.glass = glass
         return panel
     }
+
+    private weak var glass: NSGlassEffectView?
 
     var isShown: Bool { panel?.isVisible ?? false }
 
@@ -74,7 +77,7 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         table.selectRowIndexes([0], byExtendingSelection: false)
         table.scrollRowToVisible(0)
         let height = CGFloat(min(items.count, 9)) * Self.rowHeight + 10
-        panel.appearance = window.appearance
+        glass?.tintColor = Theme.current.background.withAlphaComponent(0.72)
         panel.setFrame(frame(height: height, in: editor), display: true)
         // Over the editor's window, which may not be the one it was over.
         if panel.parent !== window {

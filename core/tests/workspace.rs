@@ -65,7 +65,7 @@ fn titles_keep_dates_and_numbers() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("a.md"), "# 2026-09-28\n\nToday.\n\n---\n\n## Notes\n").unwrap();
     std::fs::write(root.join("b.md"), "# 3 things\n\n1. one\n- [ ] two\n> three\n[x](http://a.b) four\n").unwrap();
-    std::fs::write(root.join("c.md"), "# 1. Introduction\n\n*\t**bold** item\n").unwrap();
+    std::fs::write(root.join("c.md"), "# 1. Introduction\n\n*\t**bold** item\n\n| Name | Status |\n|---|:---:|\n| Alpha | done |\n").unwrap();
     std::fs::write(root.join("d.md"), "# Note 10\n").unwrap();
     std::fs::write(root.join("e.md"), "# note 2\n").unwrap();
     let ws = Workspace::open(root.to_str().unwrap(), std::ptr::null_mut(), event);
@@ -74,7 +74,8 @@ fn titles_keep_dates_and_numbers() {
     // By title, numbers count as numbers and case doesn't count.
     let page: serde_json::Value = serde_json::from_str(&ws.notes_page(0, 10)).unwrap();
     assert_eq!(page[0]["title"], "1. Introduction");
-    assert_eq!(page[0]["excerpt"], "bold item");
+    // A table reads as its cells, without the dashes under its header.
+    assert_eq!(page[0]["excerpt"], "bold item Name · Status Alpha · done");
     assert_eq!(page[1]["title"], "3 things");
     assert_eq!(page[1]["excerpt"], "one two three x four");
     assert_eq!(page[2]["title"], "2026-09-28");

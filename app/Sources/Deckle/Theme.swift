@@ -45,6 +45,17 @@ struct Theme: Sendable {
     let function: NSColor
     let constant: NSColor
     let property: NSColor
+    /// The selected text's background.
+    let selection: NSColor
+    /// The colors of callouts: note, tip, important, warning, caution.
+    let callouts: [NSColor]
+
+    /// What reads on the accent: white on a deep one, the page on a pale one.
+    var onAccent: NSColor {
+        let rgb = accent.usingColorSpace(.sRGB) ?? accent
+        let luminance = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
+        return luminance > 0.62 ? background : .white
+    }
 
     @MainActor static var current: Theme { all.first { $0.id == Settings.themeID } ?? system }
 
@@ -72,7 +83,9 @@ struct Theme: Sendable {
         type: .dynamic(light: 0x0B7A8C, dark: 0x6FCBDB),
         function: .dynamic(light: 0x2B5FD9, dark: 0x7FB0FF),
         constant: .dynamic(light: 0xB76B01, dark: 0xE8B26B),
-        property: .dynamic(light: 0xC2451E, dark: 0xF0907A)
+        property: .dynamic(light: 0xC2451E, dark: 0xF0907A),
+        selection: .selectedTextBackgroundColor,
+        callouts: [.systemBlue, .systemGreen, .systemPurple, .systemOrange, .systemRed]
     )
 
     /// A theme from a palette of 0xRRGGBB values.
@@ -91,7 +104,11 @@ struct Theme: Sendable {
             highlight: NSColor(hex: highlight, alpha: dark ? 0.35 : 0.6), keyword: NSColor(hex: keyword),
             string: NSColor(hex: string), comment: NSColor(hex: comment), number: NSColor(hex: number),
             type: NSColor(hex: type), function: NSColor(hex: function), constant: NSColor(hex: number),
-            property: NSColor(hex: property))
+            property: NSColor(hex: property),
+            selection: NSColor(hex: accent, alpha: dark ? 0.35 : 0.25),
+            // Callouts in the palette's own blue, green, purple, orange and
+            // red, which its code colors already are.
+            callouts: [NSColor(hex: function), NSColor(hex: string), NSColor(hex: keyword), NSColor(hex: number), NSColor(hex: property)])
     }
 
     static let all: [Theme] = [
@@ -140,13 +157,7 @@ struct Theme: Sendable {
 
     /// The color of a callout by kind: note, tip, important, warning, caution.
     func calloutColor(_ kind: Int) -> NSColor {
-        switch kind {
-        case 2: .systemGreen
-        case 3: .systemPurple
-        case 4: .systemOrange
-        case 5: .systemRed
-        default: .systemBlue
-        }
+        callouts[max(0, min(kind - 1, callouts.count - 1))]
     }
 }
 

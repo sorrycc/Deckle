@@ -20,25 +20,56 @@ final class Renderer: NSObject, WKNavigationDelegate {
     private var webView: WKWebView?
     private var isLoaded = false
     private var loadScheduled = false
-    private var queue: [(key: String, kind: Kind, source: String, dark: Bool, color: String, size: CGFloat, width: CGFloat)] = []
+    private struct Job {
+        let key: String
+        /// Who asked: an element of an editor. A newer job from the same
+        /// place replaces one still waiting, as when the source is typed in.
+        let owner: String
+        let kind: Kind
+        let source: String
+        let dark: Bool
+        let color: String
+        let background: String
+        let accent: String
+        let size: CGFloat
+        let width: CGFloat
+    }
+
+    private var queue: [Job] = []
     private var isBusy = false
     private var images: [String: NSImage] = [:]
+    /// Keys in the order they were made, so the oldest go first.
+    private var order: [String] = []
     private var waiting: [String: [(NSImage) -> Void]] = [:]
+    private var idleTimer: Timer?
 
     /// The image of `source`, or nil while it renders; `done` gets it then.
+    /// A diagram takes the note's `background` and `accent` too, so it is
+    /// drawn in the theme's colors.
     func image(
-        _ kind: Kind, source: String, dark: Bool, color: NSColor, size: CGFloat, width: CGFloat,
-        done: @escaping (NSImage) -> Void
+        _ kind: Kind, source: String, dark: Bool, color: NSColor, background: NSColor? = nil, accent: NSColor? = nil,
+        size: CGFloat, width: CGFloat, owner: String = "", done: @escaping (NSImage) -> Void
     ) -> NSImage? {
         let hex = Self.hex(color)
-        let key = "\(kind.rawValue)|\(dark)|\(hex)|\(size)|\(Int(width))|\(source)"
+        let backgroundHex = background.map(Self.hex) ?? ""
+        let accentHex = accent.map(Self.hex) ?? hex
+        let key = "\(kind.rawValue)|\(dark)|\(hex)|\(backgroundHex)|\(accentHex)|\(size)|\(Int(width))|\(source)"
         if let image = images[key] { return image }
         if waiting[key] != nil {
             waiting[key]?.append(done)
             return nil
         }
-        waiting[key] = [done]
-        queue.append((key, kind, source, dark, hex, size, width))
+        // What the same place asked for before and hasn't had yet is
+        // out of date; whoever waited for it waits for this instead.
+        if !owner.isEmpty {
+            for stale in queue where stale.owner == owner {
+                let callbacks = waiting.removeValue(forKey: stale.key) ?? []
+                waiting[key, default: []].append(contentsOf: callbacks)
+            }
+            queue.removeAll { $0.owner == owner }
+        }
+        waiting[key, default: []].append(done)
+        queue.append(Job(key: key, owner: owner, kind: kind, source: source, dark: dark, color: hex, background: backgroundHex, accent: accentHex, size: size, width: width))
         start()
         return nil
     }
@@ -58,10 +89,35 @@ final class Renderer: NSObject, WKNavigationDelegate {
             }
             return
         }
-        guard isLoaded, !isBusy, !queue.isEmpty else { return }
+        guard isLoaded, !isBusy, !queue.isEmpty else {
+            if queue.isEmpty, !isBusy { scheduleTeardown() }
+            return
+        }
+        idleTimer?.invalidate()
         isBusy = true
         let job = queue.removeFirst()
         Task { await render(job) }
+    }
+
+    /// The web view and its process go away after a while unused; a note
+    /// with one formula shouldn't keep them for the whole session. The
+    /// images drawn stay.
+    private func scheduleTeardown() {
+        idleTimer?.invalidate()
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 90, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tearDown() }
+        }
+    }
+
+    private func tearDown() {
+        guard queue.isEmpty, !isBusy, let window else { return }
+        webView?.navigationDelegate = nil
+        window.contentView = nil
+        window.orderOut(nil)
+        self.window = nil
+        webView = nil
+        isLoaded = false
+        loadScheduled = false
     }
 
     private func load() {
@@ -91,7 +147,7 @@ final class Renderer: NSObject, WKNavigationDelegate {
         start()
     }
 
-    private func render(_ job: (key: String, kind: Kind, source: String, dark: Bool, color: String, size: CGFloat, width: CGFloat)) async {
+    private func render(_ job: Job) async {
         defer {
             isBusy = false
             start()
@@ -99,8 +155,11 @@ final class Renderer: NSObject, WKNavigationDelegate {
         guard let webView else { return }
         window?.appearance = NSAppearance(named: job.dark ? .darkAqua : .aqua)
         let result = try? await webView.callAsyncJavaScript(
-            "return await render(kind, source, dark, color, size, width)",
-            arguments: ["kind": job.kind.rawValue, "source": job.source, "dark": job.dark, "color": job.color, "size": job.size, "width": job.width],
+            "return await render(kind, source, dark, color, size, width, background, accent)",
+            arguments: [
+                "kind": job.kind.rawValue, "source": job.source, "dark": job.dark, "color": job.color, "size": job.size,
+                "width": job.width, "background": job.background, "accent": job.accent,
+            ],
             contentWorld: .page)
         guard let size = result as? [String: Any], let width = (size["width"] as? NSNumber)?.doubleValue,
             let height = (size["height"] as? NSNumber)?.doubleValue, width > 0, height > 0
@@ -115,8 +174,11 @@ final class Renderer: NSObject, WKNavigationDelegate {
     private func finish(_ key: String, _ image: NSImage?) {
         let callbacks = waiting.removeValue(forKey: key) ?? []
         guard let image else { return }
-        images[key] = image
-        if images.count > 400 { images.removeAll() }
+        if images.updateValue(image, forKey: key) == nil { order.append(key) }
+        // The oldest make room, a few at a time.
+        while order.count > 400 {
+            images.removeValue(forKey: order.removeFirst())
+        }
         callbacks.forEach { $0(image) }
     }
 }

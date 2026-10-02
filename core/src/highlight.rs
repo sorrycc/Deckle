@@ -275,10 +275,24 @@ pub fn lex(name: &str, text: &str, base: usize, out: &mut Vec<Span>) {
     let mut i = 0;
     // Inside a tag of a markup language, where names are attributes.
     let mut in_tag = false;
+    // Where the current line starts, kept up as the scan passes line
+    // breaks, so a long line never has to be searched back to its start.
+    let mut line_start = 0;
+    let mut scanned = 0;
     while i < t.len() {
+        if i > scanned {
+            if let Some(p) = memchr::memrchr(b'\n', &t[scanned..i]) {
+                line_start = scanned + p + 1;
+            }
+            scanned = i;
+        }
         let c = t[i];
         if c.is_ascii_whitespace() {
+            if c == b'\n' {
+                line_start = i + 1;
+            }
             i += 1;
+            scanned = i;
             continue;
         }
         let rest = &t[i..];
@@ -411,9 +425,9 @@ pub fn lex(name: &str, text: &str, base: usize, out: &mut Vec<Span>) {
             }
             let next = t.get(k).copied();
             // A key of YAML, TOML or CSS: a name before : or = on its line.
-            let line_start = memchr::memrchr(b'\n', &t[..i]).map_or(0, |p| p + 1);
-            let leads_line = t[line_start..i].iter().all(|b| matches!(b, b' ' | b'\t' | b'-'));
-            let kind = if keyed && leads_line && matches!(next, Some(b':') | Some(b'=')) {
+            let leads_line =
+                || keyed && matches!(next, Some(b':') | Some(b'=')) && t[line_start..i].iter().all(|b| matches!(b, b' ' | b'\t' | b'-'));
+            let kind = if leads_line() {
                 TOKEN_PROPERTY
             } else if lang.keywords.contains(&lookup) {
                 TOKEN_KEYWORD
@@ -440,7 +454,7 @@ pub fn lex(name: &str, text: &str, base: usize, out: &mut Vec<Span>) {
             i = j;
             continue;
         }
-        if name == "toml" && c == b'[' && memchr::memrchr(b'\n', &t[..i]).map_or(0, |p| p + 1) == i {
+        if name == "toml" && c == b'[' && line_start == i {
             let end = memchr::memchr(b'\n', rest).map_or(t.len(), |j| i + j);
             push(out, t, base, TOKEN_TYPE, i, end);
             i = end;

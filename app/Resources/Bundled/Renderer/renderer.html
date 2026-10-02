@@ -10,6 +10,7 @@
   #out { display: inline-block; padding: 4px 2px; font-family: -apple-system, sans-serif; }
   #out.inline { padding: 0 1px; }
   #out svg { display: block; }
+  #out svg .node rect, #out svg .actor { rx: 6px; ry: 6px; }
   .error { color: #e5484d; font: 12px ui-monospace, monospace; white-space: pre-wrap; }
 </style>
 </head>
@@ -17,8 +18,91 @@
 <div id="out"></div>
 <script>
   let count = 0;
+  // KaTeX's faces load as they are first used, which can be after a
+  // snapshot is taken: they are asked for up front instead.
+  const fontsLoaded = (async () => {
+    const faces = ["KaTeX_Main", "KaTeX_Math", "KaTeX_AMS", "KaTeX_Caligraphic", "KaTeX_Fraktur", "KaTeX_SansSerif",
+      "KaTeX_Script", "KaTeX_Size1", "KaTeX_Size2", "KaTeX_Size3", "KaTeX_Size4", "KaTeX_Typewriter"];
+    const requests = [];
+    for (const face of faces) {
+      for (const style of ["normal", "italic"]) {
+        for (const weight of ["400", "700"]) {
+          requests.push(document.fonts.load(`${style} ${weight} 16px "${face}"`).catch(() => []));
+        }
+      }
+    }
+    await Promise.all(requests);
+  })();
   // Renders math or a diagram into #out and returns its size in points.
-  async function render(kind, source, dark, color, size, width) {
+  // Mixes two #RRGGBB colors: `t` of the way from `a` to `b`.
+  function mix(a, b, t) {
+    const c = (h, i) => parseInt(h.slice(i, i + 2), 16);
+    const hex = (v) => Math.round(v).toString(16).padStart(2, "0");
+    return "#" + [1, 3, 5].map((i) => hex(c(a, i) + (c(b, i) - c(a, i)) * t)).join("");
+  }
+
+  // Diagrams in the editor's own colors: the note's background and text,
+  // its accent for lines and emphasis, so they sit in the page like the
+  // text around them rather than in Mermaid's lavender.
+  function mermaidTheme(dark, color, background, accent, size) {
+    const bg = background || (dark ? "#1e1e1e" : "#ffffff");
+    const line = mix(color, bg, 0.45);
+    return {
+      theme: "base",
+      themeVariables: {
+        darkMode: dark,
+        background: bg,
+        fontFamily: "-apple-system, sans-serif",
+        fontSize: (size || 14) + "px",
+        primaryColor: mix(accent, bg, dark ? 0.78 : 0.86),
+        primaryTextColor: color,
+        primaryBorderColor: mix(accent, color, 0.3),
+        secondaryColor: mix(color, bg, 0.9),
+        secondaryTextColor: color,
+        secondaryBorderColor: line,
+        tertiaryColor: mix(color, bg, 0.94),
+        tertiaryTextColor: color,
+        tertiaryBorderColor: line,
+        lineColor: mix(color, bg, 0.3),
+        textColor: color,
+        mainBkg: mix(accent, bg, dark ? 0.78 : 0.86),
+        nodeBorder: mix(accent, color, 0.3),
+        clusterBkg: mix(color, bg, 0.95),
+        clusterBorder: line,
+        titleColor: color,
+        edgeLabelBackground: bg,
+        nodeTextColor: color,
+        // Sequence diagrams.
+        actorBkg: mix(accent, bg, dark ? 0.78 : 0.86),
+        actorBorder: mix(accent, color, 0.3),
+        actorTextColor: color,
+        actorLineColor: line,
+        signalColor: color,
+        signalTextColor: color,
+        labelBoxBkgColor: mix(color, bg, 0.92),
+        labelBoxBorderColor: line,
+        labelTextColor: color,
+        loopTextColor: color,
+        noteBkgColor: mix(accent, bg, dark ? 0.7 : 0.8),
+        noteBorderColor: mix(accent, color, 0.3),
+        noteTextColor: color,
+        activationBkgColor: mix(color, bg, 0.9),
+        activationBorderColor: line,
+        sequenceNumberColor: bg,
+        // Pie, git and state diagrams.
+        pie1: accent, pie2: mix(accent, bg, 0.3), pie3: mix(accent, bg, 0.5), pie4: mix(accent, bg, 0.65),
+        pie5: mix(accent, color, 0.3), pie6: mix(accent, color, 0.5), pie7: mix(color, bg, 0.5), pie8: mix(color, bg, 0.7),
+        pieTitleTextColor: color, pieSectionTextColor: bg, pieLegendTextColor: color, pieStrokeColor: bg,
+        git0: accent, git1: mix(accent, color, 0.4), git2: mix(accent, bg, 0.4), git3: mix(color, bg, 0.4),
+        gitBranchLabel0: bg, gitBranchLabel1: bg, gitBranchLabel2: color, gitBranchLabel3: color,
+        commitLabelColor: color, commitLabelBackground: mix(color, bg, 0.92), tagLabelColor: color,
+        tagLabelBackground: mix(accent, bg, 0.8), tagLabelBorder: mix(accent, color, 0.3),
+        labelColor: color, errorBkgColor: bg, errorTextColor: color,
+      },
+    };
+  }
+
+  async function render(kind, source, dark, color, size, width, background, accent) {
     const out = document.getElementById("out");
     out.className = kind === "inline" ? "inline" : "";
     out.innerHTML = "";
@@ -27,15 +111,26 @@
     out.style.maxWidth = width + "px";
     try {
       if (kind === "mermaid") {
-        mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict", fontFamily: "-apple-system, sans-serif" });
+        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", ...mermaidTheme(dark, color, background, accent || color, size) });
         const { svg } = await mermaid.render("diagram" + (count++), source);
         out.innerHTML = svg;
         const element = out.querySelector("svg");
         if (element) {
-          element.style.maxWidth = width + "px";
-          element.style.height = "auto";
+          // Mermaid sizes the picture as a share of its container, which
+          // shrinks to fit the picture: left so, the diagram comes out at a
+          // fraction of its size. Its own size, from the drawing itself,
+          // is set outright, no wider than the column.
+          const box = element.viewBox && element.viewBox.baseVal;
+          const natural = box && box.width > 0 ? box.width : element.getBoundingClientRect().width;
+          const shown = Math.min(natural, width);
+          element.removeAttribute("width");
+          element.removeAttribute("height");
+          element.style.maxWidth = "none";
+          element.style.width = shown + "px";
+          element.style.height = box && box.width > 0 ? (box.height * shown / box.width) + "px" : "auto";
         }
       } else {
+        await fontsLoaded;
         katex.render(source, out, { displayMode: kind === "math", throwOnError: false });
       }
     } catch (error) {

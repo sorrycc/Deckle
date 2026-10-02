@@ -206,7 +206,12 @@ fn extract(text: &str, path: &Path) -> Note {
             continue;
         }
         if excerpt.len() < 320 {
-            let text = plain(strip_block_prefix(trimmed));
+            // A table's row reads as its cells; the row of dashes under its
+            // header says nothing.
+            if is_table_delimiter(trimmed) {
+                continue;
+            }
+            let text = plain(strip_block_prefix(&table_cells(trimmed)));
             if !text.is_empty() {
                 if !excerpt.is_empty() {
                     excerpt.push(' ');
@@ -271,6 +276,24 @@ fn atx_heading(line: &str) -> Option<&str> {
 
 /// A thematic break, or the underline of a setext heading: `---`, `***`,
 /// `___` or `===`, three or more, with spaces between if any.
+/// Whether `line` is the row of dashes and colons under a table's header.
+fn is_table_delimiter(line: &str) -> bool {
+    let inner = line.trim().trim_matches('|');
+    !inner.is_empty()
+        && inner.contains('-')
+        && inner.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+}
+
+/// A table row as its cells, separated by spaces, or `line` as it is when
+/// it isn't one.
+fn table_cells(line: &str) -> std::borrow::Cow<'_, str> {
+    if !line.starts_with('|') {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).filter(|c| !c.is_empty()).collect();
+    std::borrow::Cow::Owned(cells.join(" · "))
+}
+
 fn is_rule(line: &str) -> bool {
     let mut marks = line.chars().filter(|c| *c != ' ');
     let Some(first) = marks.next() else { return false };
@@ -366,6 +389,14 @@ fn links_in(line: &str, out: &mut Vec<String>) {
         }
         rest = &rest[end + 2..];
     }
+}
+
+/// Whether a wikilink's lowercased `target` names the note with name `keys`
+/// and workspace-relative path `rel`: by name, by path, or by a path's tail.
+fn links_to(keys: &[String], rel: &str, target: &str) -> bool {
+    keys.iter().any(|k| k == target)
+        || rel == target
+        || (rel.len() > target.len() && rel.ends_with(target) && rel.as_bytes()[rel.len() - target.len() - 1] == b'/')
 }
 
 fn first_image(line: &str) -> Option<&str> {
@@ -670,15 +701,34 @@ impl Workspace {
         let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
         let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
         let mut buf = Vec::new();
+        // The query as typed, in one piece: a title that begins with it, or
+        // holds it whole, is a closer match than one with its words apart.
+        let whole = query.trim().to_lowercase();
         let mut scored: Vec<(u32, &PathBuf)> = Vec::new();
         for path in &index.files {
-            if notes_only && !index.notes.contains_key(path) {
+            let note = index.notes.get(path);
+            if notes_only && note.is_none() {
                 continue;
             }
             let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
-            if let Some(score) = pattern.score(Utf32Str::new(&rel, &mut buf), &mut matcher) {
+            let by_path = pattern.score(Utf32Str::new(&rel, &mut buf), &mut matcher);
+            // A note is found by its title as well as its path: the title is
+            // what the list shows, and a match there is the one meant.
+            let by_title = note.filter(|n| !n.title.is_empty()).and_then(|n| {
+                let score = pattern.score(Utf32Str::new(&n.title, &mut buf), &mut matcher)?;
+                let title = n.title.to_lowercase();
+                let bonus = if title.starts_with(&whole) {
+                    64
+                } else if title.contains(&whole) {
+                    40
+                } else {
+                    16
+                };
+                Some(score + bonus)
+            });
+            if let Some(score) = by_path.max(by_title) {
                 // Notes before other files, at an equal match.
-                let bonus = if index.notes.contains_key(path) { 8 } else { 0 };
+                let bonus = if note.is_some() { 8 } else { 0 };
                 scored.push((score + bonus, path));
             }
         }
@@ -804,6 +854,15 @@ impl Workspace {
         best.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
     }
 
+    /// How many notes link to the note at `path`, from the index alone.
+    pub fn backlink_count(&self, path: &str) -> u32 {
+        let path = Path::new(path);
+        let keys = name_keys(path);
+        let rel = path.strip_prefix(&self.shared.root).unwrap_or(path).with_extension("").to_string_lossy().to_lowercase();
+        let index = self.shared.index.read().unwrap();
+        index.notes.iter().filter(|(p, n)| p.as_path() != path && n.links.iter().any(|l| links_to(&keys, &rel, l))).count() as u32
+    }
+
     /// The notes that link to the note at `path`, with the lines that do.
     pub fn backlinks(&self, path: &str) -> String {
         let path = Path::new(path);
@@ -814,7 +873,7 @@ impl Workspace {
             let mut sources: Vec<(PathBuf, String)> = index
                 .notes
                 .iter()
-                .filter(|(p, n)| p.as_path() != path && n.links.iter().any(|l| keys.contains(l) || *l == rel || rel.ends_with(&format!("/{l}"))))
+                .filter(|(p, n)| p.as_path() != path && n.links.iter().any(|l| links_to(&keys, &rel, l)))
                 .map(|(p, n)| (p.clone(), n.title.clone()))
                 .collect();
             sources.sort();
@@ -829,7 +888,7 @@ impl Workspace {
             for (number, line) in text.split('\n').enumerate() {
                 let mut targets = Vec::new();
                 links_in(line, &mut targets);
-                if targets.iter().any(|l| keys.contains(l) || *l == rel || rel.ends_with(&format!("/{l}"))) {
+                if targets.iter().any(|l| links_to(&keys, &rel, l)) {
                     let shown: String = plain(strip_block_prefix(line)).chars().take(160).collect();
                     lines.push(json!({ "line": number + 1, "text": shown, "offset": offset }));
                 }
@@ -903,19 +962,25 @@ fn preview(line: &str, at: usize) -> (String, u32) {
 
 /// The matches of one note, or nothing when it has none.
 fn search_file(text: &str, finder: &memchr::memmem::Finder, sensitive: bool, path: &Path, title: &str) -> Option<Value> {
-    let lowered;
-    let haystack = if sensitive {
-        text
+    let lowered: Vec<u8>;
+    let lowered_text: String;
+    let haystack: &[u8] = if sensitive {
+        text.as_bytes()
+    } else if finder.needle().is_ascii() {
+        // An ASCII needle: folding only ASCII keeps every byte in place, so
+        // the offsets found hold in the text as it is.
+        lowered = text.bytes().map(|b| b.to_ascii_lowercase()).collect();
+        &lowered
     } else {
-        lowered = text.to_lowercase();
+        lowered_text = text.to_lowercase();
         // Lowercasing may change lengths; offsets only hold when it doesn't.
-        if lowered.len() == text.len() { lowered.as_str() } else { text }
+        if lowered_text.len() == text.len() { lowered_text.as_bytes() } else { text.as_bytes() }
     };
     let mut matches = Vec::new();
     let mut count = 0;
     // Line starts and UTF-16 offsets are tracked as the matches advance.
     let (mut line_start, mut line_number, mut units, mut counted) = (0usize, 1usize, 0u32, 0usize);
-    for at in finder.find_iter(haystack.as_bytes()) {
+    for at in finder.find_iter(haystack) {
         count += 1;
         if matches.len() >= 5 || !text.is_char_boundary(at) {
             continue;

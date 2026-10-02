@@ -11,9 +11,14 @@ enum MainMenu {
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())
+        let services = NSMenu()
+        add(services, titled: "Services", to: appMenu)
+        NSApp.servicesMenu = services
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Deckle", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let others = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         others.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Deckle", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         add(appMenu, titled: "Deckle", to: main)
@@ -31,9 +36,14 @@ enum MainMenu {
         file.addItem(.separator())
         file.addItem(withTitle: "Close Tab", action: #selector(WindowController.closeTab(_:)), keyEquivalent: "w")
         file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
+        file.addItem(withTitle: "Reopen Closed Tab", action: #selector(WindowController.reopenClosedTab(_:)), keyEquivalent: "T")
         file.addItem(withTitle: "Save", action: #selector(WindowController.saveDocument(_:)), keyEquivalent: "s")
         file.addItem(.separator())
         item(file, "Reveal in Finder", #selector(WindowController.revealInFinder(_:)), "r", [.command, .option])
+        item(file, "Move to Trash", #selector(WindowController.moveToTrash(_:)), "\u{8}", [.command])
+        file.addItem(.separator())
+        file.addItem(withTitle: "Export as PDF…", action: #selector(WindowController.exportPDF(_:)), keyEquivalent: "")
+        item(file, "Print…", #selector(WindowController.printDocument(_:)), "p", [.command, .option])
         add(file, titled: "File", to: main)
 
         let edit = NSMenu()
@@ -43,6 +53,8 @@ enum MainMenu {
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        item(edit, "Paste and Match Style", #selector(NSTextView.pasteAsPlainText(_:)), "V", [.command, .option, .shift])
+        edit.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         edit.addItem(.separator())
         let find = NSMenu()
@@ -57,7 +69,33 @@ enum MainMenu {
             item.tag = action.rawValue
             if action == .showReplaceInterface { item.keyEquivalentModifierMask = [.command, .option] }
         }
+        find.addItem(withTitle: "Jump to Selection", action: #selector(NSResponder.centerSelectionInVisibleArea(_:)), keyEquivalent: "j")
         add(find, titled: "Find", to: edit)
+        // The text system's own menus, which it validates and checkmarks.
+        let spelling = NSMenu()
+        item(spelling, "Show Spelling and Grammar", #selector(NSText.showGuessPanel(_:)), ":", [.command])
+        item(spelling, "Check Document Now", #selector(NSText.checkSpelling(_:)), ";", [.command])
+        spelling.addItem(.separator())
+        spelling.addItem(withTitle: "Check Spelling While Typing", action: #selector(NSTextView.toggleContinuousSpellChecking(_:)), keyEquivalent: "")
+        spelling.addItem(withTitle: "Check Grammar With Spelling", action: #selector(NSTextView.toggleGrammarChecking(_:)), keyEquivalent: "")
+        spelling.addItem(withTitle: "Correct Spelling Automatically", action: #selector(NSTextView.toggleAutomaticSpellingCorrection(_:)), keyEquivalent: "")
+        add(spelling, titled: "Spelling and Grammar", to: edit)
+        let substitutions = NSMenu()
+        substitutions.addItem(withTitle: "Smart Quotes", action: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:)), keyEquivalent: "")
+        substitutions.addItem(withTitle: "Smart Dashes", action: #selector(NSTextView.toggleAutomaticDashSubstitution(_:)), keyEquivalent: "")
+        substitutions.addItem(withTitle: "Text Replacement", action: #selector(NSTextView.toggleAutomaticTextReplacement(_:)), keyEquivalent: "")
+        add(substitutions, titled: "Substitutions", to: edit)
+        let transformations = NSMenu()
+        transformations.addItem(withTitle: "Make Upper Case", action: #selector(NSResponder.uppercaseWord(_:)), keyEquivalent: "")
+        transformations.addItem(withTitle: "Make Lower Case", action: #selector(NSResponder.lowercaseWord(_:)), keyEquivalent: "")
+        transformations.addItem(withTitle: "Capitalize", action: #selector(NSResponder.capitalizeWord(_:)), keyEquivalent: "")
+        add(transformations, titled: "Transformations", to: edit)
+        let speech = NSMenu()
+        speech.addItem(withTitle: "Start Speaking", action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: "")
+        speech.addItem(withTitle: "Stop Speaking", action: #selector(NSTextView.stopSpeaking(_:)), keyEquivalent: "")
+        add(speech, titled: "Speech", to: edit)
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Emoji & Symbols", action: #selector(NSApplication.orderFrontCharacterPalette(_:)), keyEquivalent: "")
         add(edit, titled: "Edit", to: main)
 
         let format = NSMenu()
@@ -75,8 +113,13 @@ enum MainMenu {
         item(format, "Body", #selector(EditorTextView.setHeadingLevel(_:)), "0", [.command, .option])
         format.addItem(.separator())
         item(format, "Bulleted List", #selector(EditorTextView.toggleBulletList(_:)), "8", [.command, .shift])
+        item(format, "Numbered List", #selector(EditorTextView.toggleNumberedList(_:)), "7", [.command, .shift])
         item(format, "Task List", #selector(EditorTextView.toggleTaskList(_:)), "9", [.command, .shift])
         item(format, "Quote", #selector(EditorTextView.toggleQuote(_:)), "'", [.command])
+        item(format, "Code Block", #selector(EditorTextView.toggleCodeBlock(_:)), "c", [.command, .option])
+        format.addItem(.separator())
+        item(format, "Indent", #selector(EditorTextView.indentItems(_:)), "]", [.command, .option])
+        item(format, "Outdent", #selector(EditorTextView.outdentItems(_:)), "[", [.command, .option])
         add(format, titled: "Format", to: main)
 
         let view = NSMenu()
@@ -103,6 +146,9 @@ enum MainMenu {
         go.addItem(withTitle: "Back", action: #selector(WindowController.goBack(_:)), keyEquivalent: "[")
         go.addItem(withTitle: "Forward", action: #selector(WindowController.goForward(_:)), keyEquivalent: "]")
         go.addItem(.separator())
+        item(go, "Note List", #selector(WindowController.focusList(_:)), "l", [.command, .option])
+        item(go, "Editor", #selector(WindowController.focusEditorCommand(_:)), "e", [.command, .option])
+        go.addItem(.separator())
         item(go, "Show Next Tab", #selector(WindowController.selectNextTab(_:)), "\t", [.control])
         item(go, "Show Previous Tab", #selector(WindowController.selectPreviousTab(_:)), "\t", [.control, .shift])
         for number in 1...9 {
@@ -116,8 +162,18 @@ enum MainMenu {
         let window = NSMenu()
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        window.addItem(.separator())
+        item(window, "Welcome to Deckle", #selector(AppDelegate.showWelcomeWindow(_:)), "1", [.command, .shift])
+        window.addItem(.separator())
+        window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         add(window, titled: "Window", to: main)
         NSApp.windowsMenu = window
+
+        let help = NSMenu()
+        help.addItem(withTitle: "Deckle Help", action: #selector(AppDelegate.showHelp(_:)), keyEquivalent: "?")
+        help.addItem(withTitle: "Markdown Reference", action: #selector(AppDelegate.showMarkdownReference(_:)), keyEquivalent: "")
+        add(help, titled: "Help", to: main)
+        NSApp.helpMenu = help
         return main
     }
 

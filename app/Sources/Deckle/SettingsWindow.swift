@@ -22,6 +22,16 @@ final class SettingsWindowController: NSWindowController {
         window.title = "Settings"
         super.init(window: window)
         window.center()
+        applyAppearance()
+        NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged(_:)), name: .appearanceDidChange, object: nil)
+    }
+
+    @objc private func appearanceChanged(_ note: Notification) { applyAppearance() }
+
+    /// The window takes the theme's appearance, as the workspace window does,
+    /// so a light theme on a dark Mac gets light settings too.
+    private func applyAppearance() {
+        window?.appearance = Theme.current.appearance.flatMap { NSAppearance(named: $0) }
     }
 
     required init?(coder: NSCoder) { fatalError() }

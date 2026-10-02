@@ -1,25 +1,47 @@
 import AppKit
 import CDeckleCore
+import ImageIO
 
 /// An image drawn above its `![alt](src)` line.
 final class ImageWidget: Widget {
     let image: NSImage
     let size: NSSize
     let corner: CGFloat
+    /// In the middle of the column, as display math is set.
+    let centered: Bool
     var height: CGFloat { size.height }
 
-    init(image: NSImage, size: NSSize, corner: CGFloat = 8) {
+    init(image: NSImage, size: NSSize, corner: CGFloat = 8, centered: Bool = false) {
         self.image = image
         self.size = size
         self.corner = corner
+        self.centered = centered
     }
 
     func draw(in rect: CGRect, theme: Theme) {
-        let frame = CGRect(x: rect.minX + 4, y: rect.minY, width: size.width, height: size.height)
+        let x = centered ? rect.minX + ((rect.width - size.width) / 2).rounded() : rect.minX + 4
+        let frame = CGRect(x: x, y: rect.minY, width: size.width, height: size.height)
         NSGraphicsContext.saveGraphicsState()
         if corner > 0 { NSBezierPath(roundedRect: frame, xRadius: corner, yRadius: corner).addClip() }
         image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
         NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
+/// The room an image will take while it is decoded: a quiet plate of the
+/// same size, so the page doesn't jump when the picture arrives.
+final class PlaceholderWidget: Widget {
+    let size: NSSize
+    var height: CGFloat { size.height }
+
+    init(size: NSSize) {
+        self.size = size
+    }
+
+    func draw(in rect: CGRect, theme: Theme) {
+        let frame = CGRect(x: rect.minX + 4, y: rect.minY, width: size.width, height: size.height)
+        theme.codeBackground.setFill()
+        NSBezierPath(roundedRect: frame, xRadius: 8, yRadius: 8).fill()
     }
 }
 
@@ -33,7 +55,7 @@ final class TableWidget: Widget {
     private let rows: [[Cell]]
     private let widths: [CGFloat]
     private let heights: [CGFloat]
-    private static let padding = NSSize(width: 12, height: 7)
+    private static let padding = NSSize(width: 13, height: 8)
     var height: CGFloat { heights.reduce(0, +) + 1 }
 
     init(rows: [[Cell]], maxWidth: CGFloat) {
@@ -69,7 +91,9 @@ final class TableWidget: Widget {
             theme.codeBackground.setFill()
             CGRect(x: frame.minX, y: frame.minY, width: width, height: first).fill()
         }
-        theme.rule.setFill()
+        // Hairlines between cells, so the grid stays lighter than the text;
+        // the rule under the header is a full line.
+        let hairline = 1 / (NSScreen.main?.backingScaleFactor ?? 2)
         var y = frame.minY
         for (r, row) in rows.enumerated() {
             var x = frame.minX
@@ -78,10 +102,16 @@ final class TableWidget: Widget {
                 let box = CGRect(x: x + Self.padding.width, y: y + Self.padding.height, width: max(1, widths[i] - 2 * Self.padding.width), height: heights[r] - 2 * Self.padding.height)
                 cell.text.draw(with: box, options: [.usesLineFragmentOrigin, .usesFontLeading])
                 x += widths[i]
-                if i < widths.count - 1 { CGRect(x: x, y: y, width: 1, height: heights[r]).fill() }
+                if i < widths.count - 1 {
+                    theme.rule.withAlphaComponent(theme.rule.alphaComponent * 0.6).setFill()
+                    CGRect(x: x - hairline / 2, y: y, width: hairline, height: heights[r]).fill()
+                }
             }
             y += heights[r]
-            if r < rows.count - 1 { CGRect(x: frame.minX, y: y, width: width, height: 1).fill() }
+            if r < rows.count - 1 {
+                theme.rule.setFill()
+                CGRect(x: frame.minX, y: r == 0 ? y - 0.5 : y - hairline / 2, width: width, height: r == 0 ? 1 : hairline).fill()
+            }
         }
         NSGraphicsContext.restoreGraphicsState()
         theme.rule.setStroke()
@@ -95,9 +125,21 @@ final class TableWidget: Widget {
 @MainActor
 final class WidgetStore: WidgetSource {
     private weak var editor: EditorView?
-    private var images: [String: NSImage] = [:]
+    /// Images decoded at the size they are drawn, up to a budget of pixels.
+    private static let images: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 160 * 1024 * 1024
+        return cache
+    }()
     /// Images being read, so each is asked for once.
     private var loading: Set<String> = []
+    private static let decodeQueue = DispatchQueue(label: "dev.sorrycc.deckle.images", qos: .userInitiated, attributes: .concurrent)
+    /// The sizes of local images, read from their headers, for the room an
+    /// image takes before it is decoded.
+    private var imageSizes: [String: NSSize] = [:]
+    /// The last image drawn for each piece of math or diagram, shown while a
+    /// new one, for another width or theme, renders.
+    private var lastRendered: [String: NSImage] = [:]
     private var tables: [String: TableWidget] = [:]
     private var rendered: [String: NSImage] = [:]
     private var rendering: Set<String> = []
@@ -136,11 +178,18 @@ final class WidgetStore: WidgetSource {
             case DeckleImage where span.flags & 1 != 0:
                 guard let destination = spans.first(where: { $0.kindValue == DeckleImageDest && $0.element == span.element }) else { continue }
                 let source = (editor.storage.string as NSString).substring(with: destination.range)
-                guard let image = image(for: source, line: range) else { continue }
-                let size = fit(image.size, width: editor.columnWidth - 2 * style.firstLineHeadIndent, height: 560)
-                let widget = ImageWidget(image: image, size: size)
+                let widget: Widget
+                let available = editor.columnWidth - 2 * style.firstLineHeadIndent
+                if let image = image(for: source, line: range) {
+                    widget = ImageWidget(image: image, size: fit(image.size, width: available, height: 560))
+                } else if let natural = imageSize(for: source) {
+                    // Not decoded yet: the room it will take, held for it.
+                    widget = PlaceholderWidget(size: fit(natural, width: available, height: 560))
+                } else {
+                    continue
+                }
                 decoration.widget = widget
-                style.paragraphSpacingBefore += size.height + 6
+                style.paragraphSpacingBefore += widget.height + 6
                 if !styler.isRevealed(span.element) {
                     hide(content)
                     decoration.lineHeight = 6
@@ -196,16 +245,30 @@ final class WidgetStore: WidgetSource {
             decoration.block = .none
         }
         guard span.start == span.elem_start else { return }
-        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            let image = renderedImage(kind, source: source, element: span.element, styler: styler)
-        else {
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            if !revealed { decoration.lineHeight = nil }
+            return
+        }
+        // While a new rendering is on its way, the last one stands in, so
+        // a change of theme or width doesn't blank the block.
+        let key = "\(kind.rawValue)|\(source)"
+        let image: NSImage?
+        if let fresh = renderedImage(kind, source: source, element: span.element, styler: styler) {
+            lastRendered[key] = fresh
+            image = fresh
+        } else {
+            image = lastRendered[key]
+        }
+        guard let image else {
             if !revealed { decoration.lineHeight = nil }
             return
         }
         let width = (editor?.columnWidth ?? 600) - 8
         let scale = min(1, width / max(1, image.size.width))
         let size = NSSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
-        decoration.widget = ImageWidget(image: image, size: size, corner: 0)
+        // Math is set in the middle of the column; a diagram starts at the
+        // text's edge, as the blocks around it do.
+        decoration.widget = ImageWidget(image: image, size: size, corner: 0, centered: kind == .math)
         style.paragraphSpacingBefore += size.height + (revealed ? 10 : 6)
     }
 
@@ -216,9 +279,19 @@ final class WidgetStore: WidgetSource {
         let appearance = editor.effectiveAppearance
         let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         var color = NSColor.textColor
-        appearance.performAsCurrentDrawingAppearance { color = styler.theme.text.usingColorSpace(.sRGB) ?? .textColor }
-        let size = kind == .mermaid ? 14 : styler.fonts.size * (kind == .math ? 1.15 : 0.95)
-        return Renderer.shared.image(kind, source: source, dark: dark, color: color, size: size, width: editor.columnWidth - 8) { [weak editor] _ in
+        var background = NSColor.textBackgroundColor
+        var accent = NSColor.controlAccentColor
+        appearance.performAsCurrentDrawingAppearance {
+            color = styler.theme.text.usingColorSpace(.sRGB) ?? .textColor
+            background = styler.theme.background.usingColorSpace(.sRGB) ?? .textBackgroundColor
+            accent = styler.theme.accent.usingColorSpace(.sRGB) ?? .controlAccentColor
+        }
+        // A diagram's labels a little under the text, as a code block's are.
+        let size = kind == .mermaid ? (styler.fonts.size * 0.9).rounded() : styler.fonts.size * (kind == .math ? 1.15 : 0.95)
+        return Renderer.shared.image(
+            kind, source: source, dark: dark, color: color, background: background, accent: accent, size: size,
+            width: editor.columnWidth - 8, owner: "\(ObjectIdentifier(editor).hashValue)|\(element.location)|\(kind.rawValue)"
+        ) { [weak editor] _ in
             editor?.restyle(element)
         }
     }
@@ -253,29 +326,71 @@ final class WidgetStore: WidgetSource {
             let path = source.removingPercentEncoding ?? source
             key = URL(fileURLWithPath: path, relativeTo: editor.url.deletingLastPathComponent()).standardizedFileURL.path
         }
-        if let image = images[key] { return image }
+        if let image = Self.images.object(forKey: key as NSString) { return image }
         guard !loading.contains(key) else { return nil }
         loading.insert(key)
         let done: @MainActor (NSImage?) -> Void = { [weak self] image in
             guard let self else { return }
             self.loading.remove(key)
             guard let image else { return }
-            self.images[key] = image
+            Self.images.setObject(image, forKey: key as NSString, cost: Int(image.size.width * image.size.height) * 4)
             self.editor?.restyle(line)
         }
         if remote {
             guard let url = URL(string: key) else { return nil }
             URLSession.shared.dataTask(with: url) { data, _, _ in
-                let data = data
-                DispatchQueue.main.async { done(data.flatMap { NSImage(data: $0) }) }
+                let image = data.flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }.flatMap(Self.decoded)
+                DispatchQueue.main.async { done(image) }
             }.resume()
         } else {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let data = try? Data(contentsOf: URL(fileURLWithPath: key))
-                DispatchQueue.main.async { done(data.flatMap { NSImage(data: $0) }) }
+            Self.decodeQueue.async {
+                let image = CGImageSourceCreateWithURL(URL(fileURLWithPath: key) as CFURL, nil).flatMap(Self.decoded)
+                DispatchQueue.main.async { done(image) }
             }
         }
         return nil
+    }
+
+    /// Decodes an image no larger than it is ever drawn, off the main
+    /// thread, keeping its size in points so the column fits it as before.
+    private nonisolated static let maxPixels = 2400
+
+    private nonisolated static func decoded(_ source: CGImageSource) -> NSImage? {
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let width = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue ?? 0
+        let height = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue ?? 0
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        // An oriented image swaps its sides; the thumbnail's own ratio holds.
+        let longer = max(width, height)
+        let scale = longer > 0 ? min(1, Double(maxPixels) / longer) : 1
+        let size = NSSize(width: Double(cgImage.width) / scale, height: Double(cgImage.height) / scale)
+        return NSImage(cgImage: cgImage, size: size)
+    }
+
+    /// The size of a local image from its header alone, which costs no
+    /// decoding; nil for one that can't be read or isn't local.
+    private func imageSize(for source: String) -> NSSize? {
+        guard let editor, !source.hasPrefix("http://"), !source.hasPrefix("https://") else { return nil }
+        let path = source.removingPercentEncoding ?? source
+        let key = URL(fileURLWithPath: path, relativeTo: editor.url.deletingLastPathComponent()).standardizedFileURL.path
+        if let size = imageSizes[key] { return size.width > 0 ? size : nil }
+        var size = NSSize.zero
+        if let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: key) as CFURL, nil),
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+            let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue
+        {
+            let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+            size = orientation >= 5 ? NSSize(width: height, height: width) : NSSize(width: width, height: height)
+        }
+        imageSizes[key] = size
+        return size.width > 0 ? size : nil
     }
 
     private func fit(_ size: NSSize, width: CGFloat, height: CGFloat) -> NSSize {

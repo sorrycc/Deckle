@@ -91,16 +91,21 @@ impl Doc {
 
     fn parse(&self, start: usize, end: usize, first: bool) -> Section {
         let text = &self.text[start..end];
-        let mut spans = if self.language == "markdown" {
-            markdown::parse_section(text, first)
-        } else {
-            let mut spans = Vec::new();
-            // Past this size the lexer would hold up typing.
-            if text.len() < 2_000_000 {
-                highlight::lex(&self.language, text, 0, &mut spans);
+        // A parser that trips over some odd input leaves its section plain
+        // rather than taking the editor down with it.
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if self.language == "markdown" {
+                markdown::parse_section(text, first)
+            } else {
+                let mut spans = Vec::new();
+                // Past this size the lexer would hold up typing.
+                if text.len() < 2_000_000 {
+                    highlight::lex(&self.language, text, 0, &mut spans);
+                }
+                spans
             }
-            spans
-        };
+        }));
+        let mut spans = parsed.unwrap_or_default();
         let units = match unit_offsets(text) {
             None => text.len() as u32,
             Some(map) => {
@@ -152,12 +157,28 @@ impl Doc {
     /// whose styling may have changed, in units of the new text.
     pub fn edit(&mut self, start: u32, old_len: u32, new: &str) -> (u32, u32) {
         let start = start.min(self.units());
-        let old_end = (start + old_len).min(self.units());
+        let old_end = (start.saturating_add(old_len)).min(self.units());
         let byte_start = self.byte_at(start);
-        let byte_old_end = self.byte_at(old_end);
+        let byte_old_end = self.byte_at(old_end).max(byte_start);
         let new_units = units_of(new);
         self.text.replace_range(byte_start..byte_old_end, new);
-        let byte_new_end = byte_start + new.len();
+        // The sections are reworked from the new text. Should that trip over
+        // some odd input, the whole document is parsed afresh instead.
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.reparse(start, old_end, new_units, byte_start, byte_old_end, new.len())
+        })) {
+            Ok(dirty) => dirty,
+            Err(_) => {
+                let bounds = self.bounds();
+                self.sections = (0..bounds.len() - 1).map(|i| self.parse(bounds[i], bounds[i + 1], i == 0)).collect();
+                self.index();
+                (0, self.units())
+            }
+        }
+    }
+
+    fn reparse(&mut self, start: u32, old_end: u32, new_units: u32, byte_start: usize, byte_old_end: usize, new_len: usize) -> (u32, u32) {
+        let byte_new_end = byte_start + new_len;
         let byte_delta = byte_new_end as i64 - byte_old_end as i64;
         let unit_delta = new_units as i64 - (old_end - start) as i64;
 

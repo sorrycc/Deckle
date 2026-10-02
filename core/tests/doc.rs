@@ -146,6 +146,7 @@ fn edits_match_a_fresh_parse() {
     let pieces = [
         "# ", "\n", "\n\n", "```", "```rust\n", "> ", "- ", "**", "*", "`", "[", "](x)", "[[", "]]", "|", "---\n", "$$", "$", "中文",
         "word ", "1. ", "~~", "<!--", "-->", "    ", "[^1]", "[^1]: ", "> [!tip] T\n", "==", "^", "\n# Title\n", "😀", "![a](b.png)", "~",
+        "\r\n", "\t", "~~~\n", "<pre>\n", "</pre>", "<div>\n", "Foo\n===\n", "[r]: x\n", "[a][r]", "- a\n", "- [ ] t\n", "-\n", "- - -\n",
     ];
     let mut rng = Rng(0x9E3779B97F4A7C15);
     for round in 0..40 {
@@ -214,4 +215,29 @@ fn large_document_timing() {
         total += d;
     }
     println!("{} bytes, {count} spans: open {open:?}, edit avg {:?}, worst {worst:?}", text.len(), total / 200);
+}
+
+#[test]
+fn long_lines_lex_in_linear_time() {
+    // A minified file: one line of hundreds of kilobytes.
+    let text = "var a=function(b,c){return b+c};".repeat(16_000);
+    let t = std::time::Instant::now();
+    let mut doc = Doc::new(text, "javascript");
+    let open = t.elapsed();
+    let t = std::time::Instant::now();
+    doc.edit(1000, 0, "x");
+    let edit = t.elapsed();
+    println!("minified js: open {open:?}, edit {edit:?}");
+    assert!(open.as_millis() < 150, "open took {open:?}");
+    assert!(edit.as_millis() < 150, "edit took {edit:?}");
+}
+
+#[test]
+fn a_bad_section_stays_plain() {
+    // Whatever the parser makes of it, the document survives and stays in
+    // step with the text.
+    let odd = "- [ ] \u{0}\n\n[^]: \n\n```\n\n~~~\n<pre>\n# \n\n|\n|-\n|\n\n$$\n$\n";
+    let mut doc = Doc::new(odd.to_string(), "markdown");
+    doc.edit(3, 2, "😀");
+    assert!(doc.text().contains("😀"));
 }

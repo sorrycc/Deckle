@@ -14,11 +14,44 @@ final class Tab {
 
     private(set) var entries: [Entry] = []
     private(set) var index = -1
-    /// The editor, a preview, or a placeholder when the tab is empty.
-    private(set) var view: NSView = PlaceholderView(symbol: "square.and.pencil", title: "No Note Open", detail: "Choose a note, or press ⌘N for a new one.")
+    /// A restored tab reads its file when it is first shown, so a launch
+    /// costs one note, not one per tab.
+    private var needsLoad = false
+    /// Whether a restored tab goes back to a saved place. Without one the
+    /// editor picks its own, past any front matter.
+    private var restoresPlace = true
+    private var loadedView: NSView = PlaceholderView(symbol: "square.and.pencil", title: "No Note Open", detail: "Choose a note, or press ⌘N for a new one.")
     weak var editorDelegate: EditorViewDelegate?
 
+    /// The editor, a preview, or a placeholder when the tab is empty.
+    var view: NSView {
+        if needsLoad {
+            needsLoad = false
+            load(select: restoresPlace)
+        }
+        return loadedView
+    }
+
     var editor: EditorView? { view as? EditorView }
+    /// The editor if the tab has read its file, which asking doesn't make it do.
+    var loadedEditor: EditorView? { needsLoad ? nil : loadedView as? EditorView }
+    var isLoaded: Bool { !needsLoad }
+
+    /// Where the tab's file is being read: the editor's own place, or the
+    /// one it was restored with.
+    var position: (selection: NSRange, scroll: CGFloat?) {
+        if let editor = loadedEditor { return (editor.textView.selectedRange(), editor.scrollView.contentView.bounds.origin.y) }
+        guard entries.indices.contains(index) else { return (NSRange(location: 0, length: 0), nil) }
+        return (entries[index].selection, entries[index].scroll)
+    }
+
+    /// Remembers `url` as the tab's file without reading it yet.
+    func restore(_ url: URL, selecting selection: NSRange?, scrolledTo scroll: CGFloat?) {
+        entries = [Entry(url: url, selection: selection ?? NSRange(location: 0, length: 0), scroll: scroll)]
+        index = 0
+        needsLoad = true
+        restoresPlace = selection != nil
+    }
     var url: URL? { entries.indices.contains(index) ? entries[index].url : nil }
     var canGoBack: Bool { index > 0 }
     var canGoForward: Bool { index < entries.count - 1 }
@@ -39,15 +72,16 @@ final class Tab {
         return Language.name(for: url).isEmpty ? "doc" : "chevron.left.forwardslash.chevron.right"
     }
 
-    /// Shows the file at `url`, after what the tab showed so far.
-    func open(_ url: URL, selecting selection: NSRange? = nil) {
+    /// Shows the file at `url`, after what the tab showed so far. A scroll
+    /// position puts the view back where it was, as after a relaunch.
+    func open(_ url: URL, selecting selection: NSRange? = nil, scrolledTo scroll: CGFloat? = nil) {
         if url == self.url {
             if let selection { editor?.reveal(selection) }
             return
         }
         leave()
         entries.removeSubrange((index + 1)...)
-        entries.append(Entry(url: url, selection: selection ?? NSRange(location: 0, length: 0)))
+        entries.append(Entry(url: url, selection: selection ?? NSRange(location: 0, length: 0), scroll: scroll))
         index = entries.count - 1
         load(select: selection != nil)
     }
@@ -68,14 +102,14 @@ final class Tab {
 
     /// Saves the file shown and remembers where its editor was.
     private func leave() {
-        guard let editor, entries.indices.contains(index) else { return }
+        guard let editor = loadedEditor, entries.indices.contains(index) else { return }
         editor.save()
         entries[index].selection = editor.textView.selectedRange()
         entries[index].scroll = editor.scrollView.contentView.bounds.origin.y
     }
 
     /// Saves the file shown, before the tab closes or the app quits.
-    func save() { editor?.save() }
+    func save() { loadedEditor?.save() }
 
     /// The file moved or was renamed.
     func fileMoved(from old: URL, to new: URL) {
@@ -87,7 +121,7 @@ final class Tab {
                 entries[i].url = new.appendingPathComponent(String(path.dropFirst(old.path.count + 1)))
             }
         }
-        if let editor, let url { editor.moved(to: url) }
+        if let editor = loadedEditor, let url { editor.moved(to: url) }
     }
 
     /// Forgets a file that was deleted. Returns whether the tab showed it.
@@ -97,6 +131,7 @@ final class Tab {
         entries.removeAll { $0.url.path == removed.path || $0.url.path.hasPrefix(removed.path + "/") }
         if showed {
             index = entries.count - 1
+            needsLoad = false
             load(select: true)
         } else if let current {
             index = entries.firstIndex { $0.url == current } ?? entries.count - 1
@@ -106,16 +141,18 @@ final class Tab {
 
     private func load(select: Bool) {
         guard let url else {
-            view = PlaceholderView(symbol: "square.and.pencil", title: "No Note Open", detail: "Choose a note, or press ⌘N for a new one.")
+            loadedView = PlaceholderView(symbol: "square.and.pencil", title: "No Note Open", detail: "Choose a note, or press ⌘N for a new one.")
             return
         }
         let entry = entries[index]
         if Files.isImage(url) {
-            view = ImagePreview(url: url)
+            loadedView = ImagePreview(url: url)
         } else if let text = Files.readText(url) {
             let editor = EditorView(url: url, text: text)
             editor.delegate = editorDelegate
-            view = editor
+            // A note that ships with the app, such as the help, is read-only.
+            if url.path.hasPrefix(Bundle.main.bundlePath) { editor.textView.isEditable = false }
+            loadedView = editor
             if select {
                 let length = (text as NSString).length
                 let location = min(entry.selection.location, length)
@@ -130,9 +167,9 @@ final class Tab {
                 }
             }
         } else if FileManager.default.fileExists(atPath: url.path) {
-            view = PlaceholderView(symbol: "doc", title: url.lastPathComponent, detail: "Deckle can't show this file.", url: url)
+            loadedView = PlaceholderView(symbol: "doc", title: url.lastPathComponent, detail: "Deckle can't show this file.", url: url)
         } else {
-            view = PlaceholderView(symbol: "questionmark.folder", title: url.lastPathComponent, detail: "This file is gone.")
+            loadedView = PlaceholderView(symbol: "questionmark.folder", title: url.lastPathComponent, detail: "This file is gone.")
         }
     }
 }

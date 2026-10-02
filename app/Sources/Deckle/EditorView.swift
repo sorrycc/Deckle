@@ -15,8 +15,8 @@ protocol EditorViewDelegate: AnyObject {
     func editorSelectionDidChange(_ editor: EditorView)
     func editorDidSave(_ editor: EditorView)
     func editor(_ editor: EditorView, follow link: EditorLink, inNewTab: Bool)
-    /// Notes whose name matches what follows a `[[`.
-    func editor(_ editor: EditorView, notesMatching query: String) -> [FileMatch]
+    /// Notes whose name matches what follows a `[[`, handed to `done`.
+    func editor(_ editor: EditorView, notesMatching query: String, done: @escaping @MainActor ([FileMatch]) -> Void)
 }
 
 /// A heading of the document, for the outline.
@@ -130,6 +130,18 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         NotificationCenter.default.addObserver(
             self, selector: #selector(scrolled(_:)), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         applyAppearance()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(layoutSettingChanged(_:)), name: .editorLayoutDidChange, object: nil)
+        // A note opens with the insertion point on its first line of text,
+        // past any front matter, which stays folded.
+        if isMarkdown, let frontMatter = core.spans(in: NSRange(location: 0, length: min(1, storage.length))).first(where: { $0.kindValue == DeckleFrontMatter }) {
+            let string = storage.string as NSString
+            var location = min(frontMatter.element.upperBound, string.length)
+            while location < string.length, let scalar = Unicode.Scalar(string.character(at: location)), CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                location += 1
+            }
+            textView.setSelectedRange(NSRange(location: location, length: 0))
+        }
         // The elements at the insertion point show their syntax from the
         // start, so moving away from them hides it again.
         revealed = elements(touching: textView.selectedRange())
@@ -146,12 +158,6 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         if let window, copyButton.superview != nil {
             pointerMoved(to: textView.convert(window.mouseLocationOutsideOfEventStream, from: nil), flags: NSEvent.modifierFlags)
         }
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // Out of its window, the editor can't take what the list offers.
-        if window == nil { completion.close(for: self) }
     }
 
     /// The outline follows edits and scrolling, once a burst of them settles.
@@ -190,9 +196,33 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 
     // MARK: Appearance
 
+    /// A tab out of sight takes a new look when it is next shown.
+    private var needsRestyle = false
+
     @objc private func appearanceChanged(_ note: Notification) {
+        guard window != nil else {
+            needsRestyle = true
+            return
+        }
         applyAppearance()
         restyle(NSRange(location: 0, length: storage.length))
+    }
+
+    /// The line width changed: a layout sets the column, and lays out the
+    /// widgets again for it.
+    @objc private func layoutSettingChanged(_ note: Notification) {
+        needsLayout = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Out of its window, the editor can't take what the list offers.
+        if window == nil { completion.close(for: self) }
+        if window != nil, needsRestyle {
+            needsRestyle = false
+            applyAppearance()
+            restyle(NSRange(location: 0, length: storage.length))
+        }
     }
 
     private func applyAppearance() {
@@ -200,6 +230,8 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let theme = styler.theme
         textView.backgroundColor = theme.background
         textView.insertionPointColor = theme.accent
+        textView.selectedTextAttributes = [.backgroundColor: theme.selection]
+        textView.markedTextAttributes = [.underlineStyle: NSUnderlineStyle.thick.rawValue, .underlineColor: theme.accent]
         textView.typingAttributes = styler.typingAttributes
         textView.isContinuousSpellCheckingEnabled = Settings.checksSpelling && isMarkdown
         scrollView.backgroundColor = theme.background
@@ -276,20 +308,58 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         changeInLength delta: Int
     ) {
         guard editedMask.contains(.editedCharacters) else { return }
-        let inserted = (textStorage.string as NSString).substring(with: editedRange)
+        let string = textStorage.string as NSString
+        let inserted = string.substring(with: editedRange)
         var stale = core.edit(at: editedRange.location, oldLength: editedRange.length - delta, text: inserted)
-        // A note that turns Japanese, or stops being, redraws its lines of
-        // only Han characters in the other forms.
-        let japanese = CJK.isJapanese(textStorage.string)
-        if japanese != styler.isJapaneseDocument {
-            styler.isJapaneseDocument = japanese
-            widgetStore?.invalidateTables()
-            stale = NSRange(location: 0, length: textStorage.length)
+        // The line after the change too, when the change could have made
+        // or unmade a heading: a blank line after a heading is drawn
+        // shorter. Typing within a line leaves the line after it alone.
+        if string.length > 0 {
+            let last = string.length - 1
+            let line = string.paragraphRange(for: NSRange(location: min(editedRange.location, last), length: 0))
+            let nearStart = editedRange.location - line.location < 8
+            let joinsLines = inserted.contains("\n") || editedRange.length - delta > inserted.utf16.count
+            if nearStart || joinsLines {
+                let end = string.paragraphRange(for: NSRange(location: min(stale.upperBound, last), length: 0))
+                let next = string.paragraphRange(for: NSRange(location: min(end.upperBound, last), length: 0))
+                stale = NSUnionRange(stale, next)
+            }
         }
         staleStyle = staleStyle.map { NSUnionRange($0, stale) } ?? stale
         // Editing ends before the styling is redrawn; textDidChange does it
         // for the user's edits, and this for any other.
         DispatchQueue.main.async { [weak self] in self?.flushStaleStyle() }
+        // Whether the note is Japanese is read from its whole text, which
+        // is too much for every keystroke of a long note: an edit that
+        // brings in Chinese or Japanese is checked at once, and any other
+        // once typing pauses.
+        if inserted.utf16.contains(where: { CJK.isKana($0) || CJK.isHan($0) }) {
+            checkJapanese()
+        } else {
+            scheduleJapaneseCheck()
+        }
+    }
+
+    private var japaneseCheckPending = false
+
+    private func scheduleJapaneseCheck() {
+        guard !japaneseCheckPending else { return }
+        japaneseCheckPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.japaneseCheckPending = false
+            self.checkJapanese()
+        }
+    }
+
+    /// A note that turns Japanese, or stops being, redraws its lines of
+    /// only Han characters in the other forms.
+    private func checkJapanese() {
+        let japanese = CJK.isJapanese(text)
+        guard japanese != styler.isJapaneseDocument else { return }
+        styler.isJapaneseDocument = japanese
+        widgetStore?.invalidateTables()
+        restyle(NSRange(location: 0, length: storage.length))
     }
 
     func textDidChange(_ notification: Notification) {
@@ -327,15 +397,24 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 
     /// Has the lines of `range` laid out again, with their current spans.
     func restyle(_ range: NSRange) {
+        restyle([range])
+    }
+
+    /// Lays out the lines of each range again, in one edit.
+    func restyle(_ ranges: [NSRange]) {
         let length = storage.length
         guard length > 0, !isRestyling else { return }
-        let clamped = NSIntersectionRange(range, NSRange(location: 0, length: length))
-        let start = min(range.location, length)
-        let lines = (storage.string as NSString).paragraphRange(for: NSRange(location: start, length: clamped.length))
-        guard lines.length > 0 else { return }
+        let string = storage.string as NSString
+        let lines = ranges.compactMap { range -> NSRange? in
+            let clamped = NSIntersectionRange(range, NSRange(location: 0, length: length))
+            let start = min(range.location, length)
+            let lines = string.paragraphRange(for: NSRange(location: start, length: clamped.length))
+            return lines.length > 0 ? lines : nil
+        }
+        guard !lines.isEmpty else { return }
         isRestyling = true
         storage.beginEditing()
-        storage.edited(.editedAttributes, range: lines, changeInLength: 0)
+        for range in lines { storage.edited(.editedAttributes, range: range, changeInLength: 0) }
         storage.endEditing()
         isRestyling = false
     }
@@ -343,7 +422,16 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     // MARK: Display
 
     func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
-        styler.paragraph(from: storage, range: range, spans: core.spans(in: range))
+        styler.paragraph(from: storage, range: range, spans: core.spans(in: range), afterHeading: followsHeading(range))
+    }
+
+    /// Whether the blank paragraph at `range` comes right after a heading.
+    private func followsHeading(_ range: NSRange) -> Bool {
+        guard isMarkdown, range.location > 0, range.length <= 2 else { return false }
+        let string = storage.string as NSString
+        guard string.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let previous = string.paragraphRange(for: NSRange(location: range.location - 1, length: 0))
+        return core.spans(in: previous).contains { $0.kindValue == DeckleHeading }
     }
 
     func textLayoutManager(
@@ -418,7 +506,34 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         guard now != revealed else { return }
         let before = revealed
         revealed = now
-        for element in before + now { restyle(element) }
+        // Only what changed, and of a code block or front matter only its
+        // fences: the lines between them look the same either way.
+        var ranges: [NSRange] = []
+        for element in Set(before).symmetricDifference(now) {
+            if let fences = fenceLines(of: element) {
+                ranges.append(contentsOf: fences)
+            } else {
+                ranges.append(element)
+            }
+        }
+        restyle(ranges)
+    }
+
+    /// The first and last lines of `element` when it is a code block drawn
+    /// as code, or front matter: the lines whose look depends on the
+    /// selection.
+    private func fenceLines(of element: NSRange) -> [NSRange]? {
+        let string = storage.string as NSString
+        guard element.length > 0, element.upperBound <= string.length else { return nil }
+        let first = string.paragraphRange(for: NSRange(location: element.location, length: 0))
+        let isBlock = core.spans(in: first).contains {
+            $0.element == element
+                && ($0.kindValue == DeckleFrontMatter
+                    || ($0.kindValue == DeckleCodeBlock && $0.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) == 0))
+        }
+        guard isBlock else { return nil }
+        let last = string.paragraphRange(for: NSRange(location: element.upperBound - 1, length: 0))
+        return [first, last]
     }
 
     // MARK: Hover
@@ -450,12 +565,14 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// The text view's pointer moved to `point`, or the modifier keys changed.
     func pointerMoved(to point: NSPoint, flags: NSEvent.ModifierFlags) {
         let index = textView.characterIndexForInsertion(at: point)
+        let overLink = isMarkdown && textView.bounds.contains(point) && flags.contains(.command) ? linkElement(at: index) : nil
         let hand = isMarkdown && textView.bounds.contains(point)
-            && ((flags.contains(.command) && link(at: index) != nil) || textView.taskBox(at: point) != nil)
+            && (overLink != nil || textView.taskBox(at: point) != nil)
         if hand != wantsPointingHand {
             wantsPointingHand = hand
             (hand ? NSCursor.pointingHand : NSCursor.iBeam).set()
         }
+        underline(overLink)
         guard isMarkdown, textView.bounds.contains(point), let block = codeBlock(at: index), let band = blockBand(block),
             point.x >= band.minX, point.x <= band.maxX, point.y >= band.minY
         else { return hideCopyButton() }
@@ -473,7 +590,38 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
             wantsPointingHand = false
             NSCursor.iBeam.set()
         }
+        underline(nil)
         hideCopyButton()
+    }
+
+    /// The link underlined for the pointer, which a ⌘-click would follow.
+    private var underlinedLink: NSRange?
+
+    /// Underlines the link at `element`, and only it: its line is styled
+    /// again with the underline, and the line it leaves without.
+    private func underline(_ element: NSRange?) {
+        guard element != underlinedLink else { return }
+        let old = underlinedLink
+        underlinedLink = element
+        styler.hoveredLink = element
+        restyle([old, element].compactMap { $0 })
+    }
+
+    /// The text of the link at a character: what a ⌘-click would follow.
+    private func linkElement(at index: Int) -> NSRange? {
+        guard isMarkdown, storage.length > 0, index <= storage.length else { return nil }
+        let string = storage.string as NSString
+        let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
+        for span in core.spans(in: lines) where span.element.location <= index && index <= span.element.upperBound {
+            switch span.kindValue {
+            case DeckleLink, DeckleWikiLink, DeckleFootnoteRef: return span.range
+            case DeckleLinkDest, DeckleWikiTarget:
+                // The link's own text, before its destination.
+                return core.spans(in: lines).first { ($0.kindValue == DeckleLink || $0.kindValue == DeckleWikiLink) && $0.element == span.element }?.range ?? span.range
+            default: break
+            }
+        }
+        return nil
     }
 
     private func hideCopyButton() {
@@ -547,24 +695,31 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         } else if let match = Self.linkPattern.firstMatch(in: head, range: headRange) {
             let query = (head as NSString).substring(with: match.range(at: 1))
             let trigger = NSRange(location: line.location + match.range.location, length: match.range.length)
-            let notes = delegate?.editor(self, notesMatching: query) ?? []
-            completion.show(notes.map { note in
-                let url = URL(fileURLWithPath: note.path)
-                let name = url.deletingPathExtension().lastPathComponent
-                return CompletionPopup.Item(symbol: "doc.text", title: name, detail: note.rel, apply: { editor, trigger in
-                    // Takes in the ]] typed after the insertion point too.
-                    let text = editor.storage.string as NSString
-                    var range = trigger
-                    if range.upperBound + 2 <= text.length, text.substring(with: NSRange(location: range.upperBound, length: 2)) == "]]" {
-                        range.length += 2
-                    }
-                    let link = "[[\(name)]]"
-                    editor.replace(range, with: link, select: NSRange(location: range.location + (link as NSString).length, length: 0))
-                })
-            }, trigger: trigger, in: self)
+            delegate?.editor(self, notesMatching: query) { [weak self] notes in
+                // The matches for what was typed then: dropped if typing moved on.
+                guard let self, self.textView.selectedRange() == selection else { return }
+                self.showNoteCompletions(notes, trigger: trigger)
+            }
         } else {
             completion.close(for: self)
         }
+    }
+
+    private func showNoteCompletions(_ notes: [FileMatch], trigger: NSRange) {
+        completion.show(notes.map { note in
+            let url = URL(fileURLWithPath: note.path)
+            let name = url.deletingPathExtension().lastPathComponent
+            return CompletionPopup.Item(symbol: "doc.text", title: name, detail: note.rel, apply: { editor, trigger in
+                // Takes in the ]] typed after the insertion point too.
+                let text = editor.storage.string as NSString
+                var range = trigger
+                if range.upperBound + 2 <= text.length, text.substring(with: NSRange(location: range.upperBound, length: 2)) == "]]" {
+                    range.length += 2
+                }
+                let link = "[[\(name)]]"
+                editor.replace(range, with: link, select: NSRange(location: range.location + (link as NSString).length, length: 0))
+            })
+        }, trigger: trigger, in: self)
     }
 
     // MARK: Files
@@ -780,6 +935,14 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
             let reference = string.range(of: "[^\(label)]")
             if reference.location != NSNotFound { reveal(NSRange(location: reference.upperBound, length: 0)) }
         }
+    }
+
+    /// The whole code block the line at `index` is in, fences included.
+    func codeBlockElement(at index: Int) -> NSRange? {
+        guard isMarkdown, storage.length > 0 else { return nil }
+        let string = storage.string as NSString
+        let lines = string.paragraphRange(for: NSRange(location: min(index, string.length), length: 0))
+        return core.spans(in: lines).first { $0.kindValue == DeckleCodeBlock }?.element
     }
 
     /// Whether the line at `index` is inside a code block or front matter.

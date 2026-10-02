@@ -92,7 +92,10 @@ pub fn split_sections(text: &str) -> Vec<usize> {
                 if memchr::memmem::find(&line[2..], end_text.as_bytes()).is_none() {
                     html_end = Some(end_text);
                 }
-            } else if pos > 0 && (is_atx_heading(line) || (prev_blank && line_hash(line) % CHUNK == 0)) {
+            } else if pos > 0 && (is_atx_heading(line) || ((prev_blank || is_bullet_item(line)) && line_hash(line) % CHUNK == 0)) {
+                // A bullet item at the margin starts a block even without a
+                // blank line before it, so a long tight list, such as a
+                // checklist or a log, is parsed in pieces too.
                 starts.push(pos);
             }
         }
@@ -120,6 +123,16 @@ fn fence_run(s: &[u8]) -> Option<(u8, usize)> {
     }
     let n = s.iter().take_while(|&&b| b == ch).count();
     (n >= 3).then_some((ch, n))
+}
+
+/// A bullet list item with text, which can begin a block anywhere: not a
+/// thematic break such as `- - -`, and not an empty item.
+fn is_bullet_item(line: &[u8]) -> bool {
+    let (Some(&marker), Some(&space)) = (line.first(), line.get(1)) else { return false };
+    if !matches!(marker, b'-' | b'*' | b'+') || space != b' ' {
+        return false;
+    }
+    line[2..].iter().any(|&b| b != marker && b != b' ' && b != b'\t')
 }
 
 fn is_atx_heading(line: &[u8]) -> bool {
@@ -520,7 +533,10 @@ pub fn parse_section(text: &str, first_section: bool) -> Vec<Span> {
                     Tag::FootnoteDefinition(_) => {
                         if let Some(close) = memchr::memmem::find(&bytes[r.start..r.end], b"]:") {
                             let line = b.line_at(r.start);
-                            b.inline(FOOTNOTE_DEF, r.start..r.start + close + 2, line);
+                            b.inline(FOOTNOTE_DEF, r.start..r.start + close + 2, line.clone());
+                            // The brackets hide, as other syntax does.
+                            b.marker(r.start..r.start + 2, line.clone());
+                            b.marker(r.start + close..r.start + close + 2, line);
                         }
                     }
                     Tag::Table(_) => {
@@ -612,7 +628,13 @@ pub fn parse_section(text: &str, first_section: bool) -> Vec<Span> {
                 });
                 b.push(MATH_BLOCK, range.clone(), range.clone(), 0, alone as u16, true);
             }
-            Event::FootnoteReference(_) => b.inline(FOOTNOTE_REF, range.clone(), range.clone()),
+            Event::FootnoteReference(_) => {
+                b.inline(FOOTNOTE_REF, range.clone(), range.clone());
+                if range.end - range.start > 3 {
+                    b.marker(range.start..range.start + 2, range.clone());
+                    b.marker(range.end - 1..range.end, range.clone());
+                }
+            }
             Event::InlineHtml(_) => b.inline(HTML, range.clone(), range.clone()),
             Event::TaskListMarker(checked) => {
                 let line = b.line_at(range.start);
@@ -740,6 +762,8 @@ fn text_run(b: &mut Builder, range: Range<usize>) {
                 if let Some(j) = close(i + 2, b']') {
                     if !bytes[i + 2..j].contains(&b'[') {
                         b.inline(FOOTNOTE_REF, i..j + 1, i..j + 1);
+                        b.marker(i..i + 2, i..j + 1);
+                        b.marker(j..j + 1, i..j + 1);
                         i = j + 1;
                         continue;
                     }

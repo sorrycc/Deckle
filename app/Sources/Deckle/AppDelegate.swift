@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Deckle has tabs of its own. This keeps the system's Show Tab Bar and
         // Show All Tabs out of the View menu.
         NSWindow.allowsAutomaticWindowTabbing = false
+        // A theme with an appearance of its own gives it to the whole app:
+        // every window, panel, sheet, alert and menu.
+        applyAppearance()
+        NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged(_:)), name: .appearanceDidChange, object: nil)
         NSApp.mainMenu = MainMenu.build()
         launched = true
 
@@ -36,10 +40,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Debug.runLaunchArguments(windowController)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    @objc private func appearanceChanged(_ note: Notification) { applyAppearance() }
+
+    private func applyAppearance() {
+        NSApp.appearance = Theme.current.appearance.flatMap { NSAppearance(named: $0) }
+    }
+
+    /// Closing the last window leaves the app running, as Xcode and Finder
+    /// do: the Dock icon or the Welcome window brings a workspace back.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// A click on the Dock icon with no window up reopens the workspace, or
+    /// offers one.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard !hasVisibleWindows else { return true }
+        if let controller = windowController {
+            controller.showWindow(nil)
+        } else {
+            showWelcome()
+        }
+        return false
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         windowController?.saveAll()
+    }
+
+    /// The Dock's menu lists the workspaces opened before.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        for url in Settings.recentWorkspaces.prefix(8) where FileManager.default.fileExists(atPath: url.path) {
+            let item = menu.addItem(withTitle: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = url
+        }
+        return menu
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -76,6 +111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller.onSwitchWorkspace = { [weak self] url in
             if let url { self?.openWorkspace(url) } else { self?.chooseWorkspace() }
         }
+        // The window closed by hand: the Welcome window offers another.
+        controller.onClose = { [weak self, weak controller] in
+            guard let self, self.windowController === controller else { return }
+            self.windowController = nil
+            self.showWelcome()
+        }
         windowController = controller
         controller.showWindow(nil)
         if remember { Settings.noteOpened(workspace: controller.workspace.url) }
@@ -97,6 +138,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func openFolder(_ sender: Any?) { chooseWorkspace() }
+
+    /// Help > Deckle Help: the usage guide, in a tab of its own, read-only.
+    @objc func showHelp(_ sender: Any?) {
+        guard let url = Bundle.main.url(forResource: "Deckle Help", withExtension: "md") else { return }
+        if let controller = windowController {
+            controller.showWindow(nil)
+            controller.open(url, inNewTab: true)
+        } else if let last = Settings.lastWorkspace, FileManager.default.fileExists(atPath: last.path) {
+            openWorkspace(last)
+            windowController?.open(url, inNewTab: true)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc func showMarkdownReference(_ sender: Any?) {
+        NSWorkspace.shared.open(URL(string: "https://commonmark.org/help/")!)
+    }
+
+    @objc func showWelcomeWindow(_ sender: Any?) { showWelcome() }
 
     private var welcomeController: WelcomeWindowController?
 
@@ -176,6 +237,35 @@ extension Debug {
         editor.replace(NSRange(location: 0, length: (editor.text as NSString).length), with: Files.readText(editor.url) ?? editor.text)
         NSApp.terminate(nil)
     }
+
+    /// Pages through the open note from the top, laying out and drawing each
+    /// page as a reader scrolling would, and prints how long the pages took.
+    static func scrollBenchmark(_ controller: WindowController, pages: Int) {
+        guard let editor = controller.selectedTab.editor else { return NSApp.terminate(nil) }
+        let clip = editor.scrollView.contentView
+        clip.scroll(to: NSPoint(x: 0, y: -editor.scrollView.contentInsets.top))
+        editor.scrollView.reflectScrolledClipView(clip)
+        editor.window?.displayIfNeeded()
+        var times: [Double] = []
+        var y = clip.bounds.origin.y
+        let step = clip.bounds.height
+        for _ in 0..<pages {
+            y += step
+            let end = editor.textView.frame.height - clip.bounds.height
+            if y > end { break }
+            let start = CACurrentMediaTime()
+            clip.scroll(to: NSPoint(x: 0, y: y))
+            editor.scrollView.reflectScrolledClipView(clip)
+            editor.window?.displayIfNeeded()
+            times.append((CACurrentMediaTime() - start) * 1000)
+        }
+        let sorted = times.sorted()
+        let report = sorted.isEmpty ? "nothing to scroll\n" : String(
+            format: "%d pages in %d units: median %.2f ms, p95 %.2f ms, max %.2f ms\n",
+            sorted.count, (editor.text as NSString).length, sorted[sorted.count / 2], sorted[sorted.count * 95 / 100], sorted.last ?? 0)
+        FileHandle.standardError.write(report.data(using: .utf8)!)
+        NSApp.terminate(nil)
+    }
 }
 
 /// Launch arguments for trying the app from a script:
@@ -184,12 +274,15 @@ extension Debug {
 ///   -select <loc,len>     select this range of the open file
 ///   -scroll <fraction>    scroll this far down the open file, from 0 to 1
 ///   -type <text>          type this text at the selection
+///   -exportPDF <path>     write the open note as a PDF there
 ///   -settings YES         open the Settings window, pictured as a panel
 ///   -welcome YES          open the Welcome window
 ///   -snapshot <png>       write a picture of the window there, and quit
 ///   -timing YES           print how long launching and indexing took
 ///   -benchmark <n>        type n characters in the open file, print the
 ///                         time each took to lay out and draw, and quit
+///   -scrollBenchmark <n>  page n times down the open file, print the time
+///                         each page took to lay out and draw, and quit
 @MainActor
 enum Debug {
     /// Prints how long after launch a step finished, with -timing.
@@ -229,7 +322,14 @@ enum Debug {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { benchmark(controller, characters: n) }
             return
         }
-        guard let controller, let snapshot = defaults.string(forKey: "snapshot") else { return }
+        if let count = defaults.object(forKey: "scrollBenchmark") as? String, let n = Int(count), let controller {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { scrollBenchmark(controller, pages: n) }
+            return
+        }
+        // A snapshot or a PDF: the window is shown, acted on, pictured, and
+        // the app quits.
+        let snapshot = defaults.string(forKey: "snapshot")
+        guard let controller, snapshot != nil || defaults.string(forKey: "exportPDF") != nil else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             if let editor = controller.selectedTab.editor {
                 if let select = defaults.string(forKey: "select") {
@@ -255,6 +355,11 @@ enum Debug {
                     editor.pointerMoved(to: NSPoint(x: point.midX, y: point.midY), flags: defaults.bool(forKey: "command") ? .command : [])
                 }
             }
+            if let path = defaults.string(forKey: "exportPDF") {
+                controller.writePDF(to: URL(fileURLWithPath: path))
+            }
+            // Asked for the PDF alone, the app is done once it is written.
+            guard let snapshot else { return NSApp.terminate(nil) }
             if defaults.bool(forKey: "settings") {
                 (NSApp.delegate as? AppDelegate)?.showSettings(nil)
                 if let tab = defaults.object(forKey: "settingsTab") as? String, let index = Int(tab) {

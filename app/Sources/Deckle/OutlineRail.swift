@@ -38,6 +38,10 @@ final class OutlineRail: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("Outline")
+        setAccessibilityHelp("Shows the headings of the note")
         list.orientation = .vertical
         list.alignment = .leading
         list.spacing = 2
@@ -153,9 +157,14 @@ final class OutlineRail: NSView {
             let isCurrent = button.tag == current
             button.attributedTitle = NSAttributedString(string: heading.title, attributes: [
                 .font: NSFont.systemFont(ofSize: 12, weight: isCurrent ? .semibold : heading.level <= 2 ? .medium : .regular),
-                .foregroundColor: isCurrent ? NSColor.controlAccentColor : heading.level <= 2 ? NSColor.labelColor : NSColor.secondaryLabelColor,
+                .foregroundColor: isCurrent ? Theme.current.accent : heading.level <= 2 ? NSColor.labelColor : NSColor.secondaryLabelColor,
             ])
         }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        isOpen = true
+        return true
     }
 
     @objc private func choose(_ sender: NSButton) {
@@ -174,7 +183,7 @@ final class OutlineRail: NSView {
             let heading = headings[index]
             let length: CGFloat = [14, 11, 8, 6, 5, 5][max(1, min(heading.level, 6)) - 1]
             let y = area.minY + CGFloat(slot) * tickSpacing + tickSpacing / 2
-            (slot == lit ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor).setFill()
+            (slot == lit ? Theme.current.accent : NSColor.tertiaryLabelColor).setFill()
             NSBezierPath(roundedRect: CGRect(x: area.maxX - 8 - length, y: y - 1, width: length, height: 2), xRadius: 1, yRadius: 1).fill()
         }
     }

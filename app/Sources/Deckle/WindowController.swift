@@ -9,6 +9,11 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     let workspace: Workspace
     /// Asks the app for another workspace; nil lets the user choose a folder.
     var onSwitchWorkspace: ((URL?) -> Void)?
+    /// The window was closed.
+    var onClose: (() -> Void)?
+    /// Tabs closed in this window, newest last, to bring back with ⇧⌘T.
+    private var closedTabs: [(url: URL, selection: NSRange, scroll: CGFloat?, index: Int)] = []
+    private var positionSavePending = false
 
     private let split = NSSplitViewController()
     private let tree: FileTreeController
@@ -34,8 +39,12 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         tree = FileTreeController(workspace: workspace)
         list = NoteListController(workspace: workspace)
         Debug.mark("columns made")
+        // The first window fits the screen it opens on. Laid out wider and
+        // then squeezed to fit, the split view would fold the sidebar away
+        // before the window is ever seen, and the autosave would keep that.
+        let room = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1240, height: 800)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1240, height: 800),
+            contentRect: NSRect(x: 0, y: 0, width: min(1240, room.width - 24), height: min(800, room.height - 60)),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -61,14 +70,27 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         split.addSplitViewItem(listItem)
         split.addSplitViewItem(paneItem)
         split.splitView.autosaveName = "DeckleSplit"
-        // The first window: columns of a comfortable width, until the user's
-        // own are saved.
-        if Settings.defaults.object(forKey: "NSSplitView Subview Frames DeckleSplit") == nil {
-            tree.view.frame.size.width = 220
-            list.view.frame.size.width = 300
-        }
+        // Where the window was last: known before its columns are laid out,
+        // so they are laid out once, at their final size.
+        window.setFrameAutosaveName("DeckleWindow")
+        if !window.setFrameUsingName("DeckleWindow") { window.center() }
+        // The split view is laid out at the window's own size before it
+        // becomes the content view: from a zero frame, the first layout
+        // would find no room for three columns.
+        let content = window.contentRect(forFrameRect: window.frame)
+        split.view.frame = NSRect(origin: .zero, size: content.size)
+        let firstLayout = Settings.defaults.object(forKey: "NSSplitView Subview Frames DeckleSplit") == nil
         window.contentViewController = split
-        window.setContentSize(NSSize(width: 1240, height: 800))
+        window.setContentSize(content.size)
+        // The first window: columns of a comfortable width, until the user's
+        // own are saved. The dividers are placed once the split view has
+        // laid its columns out; a frame set before that is overruled.
+        if firstLayout {
+            split.view.layoutSubtreeIfNeeded()
+            let divider = split.splitView.dividerThickness
+            split.splitView.setPosition(220, ofDividerAt: 0)
+            split.splitView.setPosition(220 + divider + 300, ofDividerAt: 1)
+        }
         Debug.mark("split view set")
 
         configureControls()
@@ -78,8 +100,6 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
         window.toolbarStyle = .unified
-        window.setFrameAutosaveName("DeckleWindow")
-        if !window.setFrameUsingName("DeckleWindow") { window.center() }
         Debug.mark("toolbar set")
 
         workspace.onFolderChange = { [weak self] url in self?.tree.folderChanged(url) }
@@ -88,12 +108,12 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
             self?.updateBacklinks()
         }
         workspace.onFileChange = { [weak self] url in
-            self?.tabs.first { $0.url?.path == url.path }?.editor?.reloadFromDisk()
+            self?.tabs.first { $0.url?.path == url.path }?.loadedEditor?.reloadFromDisk()
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged(_:)), name: .appearanceDidChange, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(splitResized(_:)), name: NSSplitView.didResizeSubviewsNotification, object: split.splitView)
-        applyWindowAppearance()
+        NotificationCenter.default.addObserver(self, selector: #selector(themeChanged(_:)), name: .appearanceDidChange, object: nil)
+        applyTheme()
         Debug.mark("window built")
         restoreSession()
         Debug.mark("session restored")
@@ -106,9 +126,16 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     private func restoreSession() {
         let state = Settings.state(for: workspace.url)
         let paths = (state["tabs"] as? [String] ?? []).filter { FileManager.default.fileExists(atPath: $0) }
+        // Where each note was left: its insertion point and scroll position.
+        let positions = state["positions"] as? [String: [String: Double]] ?? [:]
         for path in paths {
             let tab = makeTab()
-            tab.open(URL(fileURLWithPath: path))
+            // A note with no saved place opens as a fresh one does, past its
+            // front matter, rather than at the very start.
+            let position = positions[path]
+            let selection = position.map { NSRange(location: Int($0["location"] ?? 0), length: Int($0["length"] ?? 0)) }
+            // Read when first shown: only the selected tab costs at launch.
+            tab.restore(URL(fileURLWithPath: path), selecting: selection, scrolledTo: position?["scroll"].map { CGFloat($0) })
             tabs.append(tab)
         }
         if tabs.isEmpty { tabs.append(makeTab()) }
@@ -125,7 +152,34 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         state["selected"] = tabs.firstIndex { $0 === selectedTab } ?? 0
         state["folder"] = list.folder.path
         if tree.isViewLoaded { state["expanded"] = tree.expandedPaths }
+        var positions: [String: [String: Double]] = [:]
+        for tab in tabs {
+            guard let url = tab.url else { continue }
+            let position = tab.position
+            var entry: [String: Double] = ["location": Double(position.selection.location), "length": Double(position.selection.length)]
+            if let scroll = position.scroll { entry["scroll"] = Double(scroll) }
+            positions[url.path] = entry
+        }
+        state["positions"] = positions
         Settings.setState(state, for: workspace.url)
+    }
+
+    /// Remembers where the insertion point is once a burst of moves settles,
+    /// so a crash or a force quit loses no place.
+    private func savePositionLater() {
+        guard !positionSavePending else { return }
+        positionSavePending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.positionSavePending = false
+            self?.saveSession()
+        }
+    }
+
+    /// Whether to animate, which Reduce Motion turns off.
+    static var animates: Bool { !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    private func setListCollapsed(_ collapsed: Bool) {
+        (Self.animates ? listItem.animator() : listItem).isCollapsed = collapsed
     }
 
     /// Saves every open file and the session. Called before the window goes.
@@ -137,6 +191,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     func windowWillClose(_ notification: Notification) {
         saveAll()
         workspace.close()
+        onClose?()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -145,12 +200,18 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     func windowDidResize(_ notification: Notification) { fitTabStrip() }
     @objc private func splitResized(_ note: Notification) { fitTabStrip() }
+    @objc private func themeChanged(_ note: Notification) { applyTheme() }
 
-    @objc private func appearanceChanged(_ note: Notification) { applyWindowAppearance() }
-
-    /// A theme with an appearance of its own gives it to the whole window.
-    private func applyWindowAppearance() {
-        window?.appearance = Theme.current.appearance.flatMap { NSAppearance(named: $0) }
+    /// The window's chrome takes the theme's colors too: the note list and
+    /// the title bar over it sit on the page's color, a shade apart, so a
+    /// warm or a dark page isn't framed in the system's grey.
+    private func applyTheme() {
+        let theme = Theme.current
+        guard theme.appearance != nil else {
+            window?.backgroundColor = .windowBackgroundColor
+            return
+        }
+        window?.backgroundColor = theme.background.blended(withFraction: 0.035, of: theme.text) ?? theme.background
     }
 
     // MARK: Tabs
@@ -162,9 +223,11 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     }
 
     /// Shows a file: in the tab that has it, in a new tab, or in this one.
-    func open(_ url: URL, inNewTab: Bool = false, selecting selection: NSRange? = nil) {
+    /// The editor takes the keyboard unless `focusEditor` is false, as when
+    /// a list is being arrowed through.
+    func open(_ url: URL, inNewTab: Bool = false, selecting selection: NSRange? = nil, focusEditor: Bool = true) {
         if let existing = tabs.first(where: { $0.url?.path == url.path }) {
-            select(existing)
+            select(existing, focusEditor: focusEditor)
             if let selection { existing.editor?.reveal(selection) }
             return
         }
@@ -172,21 +235,37 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
             let tab = makeTab()
             tabs.insert(tab, at: (tabs.firstIndex { $0 === selectedTab } ?? tabs.count - 1) + 1)
             tab.open(url, selecting: selection)
-            select(tab)
+            select(tab, focusEditor: focusEditor)
         } else {
             selectedTab.open(url, selecting: selection)
-            tabChanged()
+            tabChanged(focusEditor: focusEditor)
         }
     }
 
-    private func select(_ tab: Tab) {
+    private func select(_ tab: Tab, focusEditor: Bool = true) {
         if selectedTab !== tab { selectedTab?.save() }
         selectedTab = tab
-        tabChanged()
+        tabChanged(focusEditor: focusEditor)
+    }
+
+    /// Puts the keyboard in the editor, from a list.
+    func focusEditor() {
+        selectedTab.editor?.focus()
+    }
+
+    @objc func focusEditorCommand(_ sender: Any?) { focusEditor() }
+
+    /// Puts the keyboard in the note list, or the tree when the list is away.
+    @objc func focusList(_ sender: Any?) {
+        if !listItem.isCollapsed, list.isViewLoaded {
+            list.focus()
+        } else if !treeItem.isCollapsed, tree.isViewLoaded {
+            tree.focus()
+        }
     }
 
     /// The selected tab, or what it shows, changed.
-    private func tabChanged() {
+    private func tabChanged(focusEditor: Bool = true) {
         CompletionPopup.shared.close()
         tabStrip.update(tabs: tabs, selected: selectedTab)
         pane.show(selectedTab.view)
@@ -201,7 +280,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
             // No note to point at: the tree marks the folder the list shows.
             if tree.isViewLoaded { tree.select(list.folder) }
         }
-        selectedTab.editor?.focus()
+        if focusEditor { selectedTab.editor?.focus() }
         updateStatus()
         updateBacklinks()
         saveSession()
@@ -210,6 +289,11 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     private func close(_ tab: Tab) {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
         tab.save()
+        if let url = tab.url {
+            let position = tab.position
+            closedTabs.append((url, position.selection, position.scroll, index))
+            if closedTabs.count > 20 { closedTabs.removeFirst() }
+        }
         tabs.remove(at: index)
         if tabs.isEmpty { tabs.append(makeTab()) }
         if tab === selectedTab {
@@ -223,6 +307,15 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     func tabStrip(_ strip: TabStripView, select tab: Tab) { select(tab) }
     func tabStrip(_ strip: TabStripView, close tab: Tab) { close(tab) }
     func tabStripNewTab(_ strip: TabStripView) { newTab(nil) }
+
+    func tabStrip(_ strip: TabStripView, closeOthers tab: Tab) {
+        for other in tabs where other !== tab { close(other) }
+    }
+
+    func tabStrip(_ strip: TabStripView, closeAfter tab: Tab) {
+        guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
+        for other in tabs[(index + 1)...].reversed() { close(other) }
+    }
 
     func tabStrip(_ strip: TabStripView, move tab: Tab, to index: Int) {
         guard let from = tabs.firstIndex(where: { $0 === tab }) else { return }
@@ -242,6 +335,26 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         // The last empty tab closes the window, as in a browser.
         if tabs.count == 1 && selectedTab.url == nil { return window?.performClose(sender) ?? () }
         close(selectedTab)
+    }
+
+    /// Brings back the tab closed last, where it was.
+    @objc func reopenClosedTab(_ sender: Any?) {
+        guard let closed = closedTabs.popLast() else { return }
+        if let existing = tabs.first(where: { $0.url?.path == closed.url.path }) { return select(existing) }
+        let tab = makeTab()
+        tab.open(closed.url, selecting: closed.selection, scrolledTo: closed.scroll)
+        tabs.insert(tab, at: min(closed.index, tabs.count))
+        select(tab)
+    }
+
+    /// File > Move to Trash: the note shown, or what a list has selected.
+    @objc func moveToTrash(_ sender: Any?) {
+        if let responder = window?.firstResponder as? NSView {
+            if tree.isViewLoaded, responder.isDescendant(of: tree.view), let url = tree.selectedURL { return tree.trash(url) }
+            if list.isViewLoaded, responder.isDescendant(of: list.view), let url = list.selectedURL { return tree.trash(url) }
+        }
+        guard let url = selectedTab.url else { return }
+        tree.trash(url)
     }
 
     @objc func newNote(_ sender: Any?) {
@@ -278,13 +391,76 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     }
 
     @objc func toggleNoteList(_ sender: Any?) {
-        listItem.animator().isCollapsed.toggle()
+        setListCollapsed(!listItem.isCollapsed)
     }
 
     @objc func openFolder(_ sender: Any?) { onSwitchWorkspace?(nil) }
 
     @objc func revealInFinder(_ sender: Any?) {
         NSWorkspace.shared.activateFileViewerSelecting([selectedTab.url ?? workspace.url])
+    }
+
+    // MARK: Printing
+
+    /// Paper settings for a note: the column scaled to the page's width,
+    /// with an inch of margin.
+    private func printInfo() -> NSPrintInfo {
+        let info = NSPrintInfo.shared.copy() as! NSPrintInfo
+        info.horizontalPagination = .fit
+        info.verticalPagination = .automatic
+        info.isHorizontallyCentered = true
+        info.isVerticallyCentered = false
+        info.topMargin = 54
+        info.bottomMargin = 54
+        info.leftMargin = 54
+        info.rightMargin = 54
+        return info
+    }
+
+    /// Runs a print operation over the editor as it is drawn, without the
+    /// room it keeps after its last line.
+    private func withPrintableEditor(_ work: (EditorView) -> Void) {
+        guard let editor = selectedTab.editor else { return }
+        let pastEnd = editor.textView.pastEnd
+        editor.textView.pastEnd = 0
+        editor.textView.layoutSubtreeIfNeeded()
+        work(editor)
+        editor.textView.pastEnd = pastEnd
+    }
+
+    @objc func printDocument(_ sender: Any?) {
+        withPrintableEditor { editor in
+            let operation = NSPrintOperation(view: editor.textView, printInfo: printInfo())
+            operation.jobTitle = selectedTab.displayTitle
+            operation.run()
+        }
+    }
+
+    @objc func exportPDF(_ sender: Any?) {
+        guard let window, selectedTab.editor != nil else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = selectedTab.displayTitle + ".pdf"
+        panel.directoryURL = selectedTab.url?.deletingLastPathComponent()
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            MainActor.assumeIsolated { self?.writePDF(to: url) }
+        }
+    }
+
+    /// Writes the note as it is drawn to a PDF at `url`, paged as a print
+    /// would be.
+    func writePDF(to url: URL) {
+        withPrintableEditor { editor in
+            let info = printInfo()
+            info.jobDisposition = .save
+            info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
+            let operation = NSPrintOperation(view: editor.textView, printInfo: info)
+            operation.showsPrintPanel = false
+            operation.showsProgressPanel = false
+            operation.jobTitle = selectedTab.displayTitle
+            operation.run()
+        }
     }
 
     @objc func zoomIn(_ sender: Any?) { Settings.editorFontSize = min(40, Settings.editorFontSize + 1) }
@@ -296,7 +472,14 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         case #selector(goBack(_:)): return selectedTab.canGoBack
         case #selector(goForward(_:)): return selectedTab.canGoForward
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)): return tabs.count > 1
-        case #selector(saveDocument(_:)): return selectedTab.editor != nil
+        case #selector(saveDocument(_:)), #selector(printDocument(_:)), #selector(exportPDF(_:)): return selectedTab.editor != nil
+        case #selector(reopenClosedTab(_:)): return !closedTabs.isEmpty
+        case #selector(moveToTrash(_:)):
+            if let responder = window?.firstResponder as? NSView {
+                if tree.isViewLoaded, responder.isDescendant(of: tree.view) { return tree.selectedURL != nil }
+                if list.isViewLoaded, responder.isDescendant(of: list.view) { return list.selectedURL != nil }
+            }
+            return selectedTab.url.map { !$0.path.hasPrefix(Bundle.main.bundlePath) } ?? false
         case #selector(goToHeading(_:)): return selectedTab.editor?.isMarkdown == true
         case #selector(toggleNoteList(_:)):
             item.title = listItem.isCollapsed ? "Show Note List" : "Hide Note List"
@@ -349,26 +532,29 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     private func updateBacklinks() {
         guard let url = selectedTab?.url, Files.isMarkdown(url) else { return pane.statusBar.show(backlinks: 0) }
-        pane.statusBar.show(backlinks: workspace.backlinks(to: url).count)
+        pane.statusBar.show(backlinks: workspace.backlinkCount(to: url))
     }
 
     // MARK: Editor
 
     func editorTextDidChange(_ editor: EditorView) {
-        guard editor === selectedTab.editor else { return }
+        guard editor === selectedTab?.editor else { return }
         scheduleWordCount()
     }
 
     func editorSelectionDidChange(_ editor: EditorView) {
-        guard editor === selectedTab.editor else { return }
+        // Tabs restored at launch set their selection before one is selected.
+        guard editor === selectedTab?.editor else { return }
         let position = editor.position
         pane.statusBar.show(line: position.line, column: position.column)
+        savePositionLater()
     }
 
     func editorDidSave(_ editor: EditorView) {}
 
-    func editor(_ editor: EditorView, notesMatching query: String) -> [FileMatch] {
-        workspace.findFiles(query, limit: 30, notesOnly: true).filter { $0.path != editor.url.path }
+    func editor(_ editor: EditorView, notesMatching query: String, done: @escaping @MainActor ([FileMatch]) -> Void) {
+        let path = editor.url.path
+        workspace.findFiles(query, limit: 30, notesOnly: true) { matches in done(matches.filter { $0.path != path }) }
     }
 
     func editor(_ editor: EditorView, follow link: EditorLink, inNewTab: Bool) {
@@ -413,11 +599,13 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     // MARK: Tree and list
 
-    func fileTree(_ tree: FileTreeController, open url: URL, inNewTab: Bool) { open(url, inNewTab: inNewTab) }
+    func fileTree(_ tree: FileTreeController, open url: URL, inNewTab: Bool, focus: Bool) {
+        open(url, inNewTab: inNewTab, focusEditor: focus)
+    }
 
     func fileTree(_ tree: FileTreeController, showFolder url: URL) {
         list.show(folder: url)
-        if listItem.isCollapsed { listItem.animator().isCollapsed = false }
+        if listItem.isCollapsed { setListCollapsed(false) }
         saveSession()
     }
 
@@ -433,8 +621,12 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     func fileTreeSwitchWorkspace(_ tree: FileTreeController, to url: URL?) { onSwitchWorkspace?(url) }
 
-    func noteList(_ list: NoteListController, open url: URL, inNewTab: Bool) { open(url, inNewTab: inNewTab) }
+    func noteList(_ list: NoteListController, open url: URL, inNewTab: Bool, focus: Bool) {
+        open(url, inNewTab: inNewTab, focusEditor: focus)
+    }
     func noteList(_ list: NoteListController, trash url: URL) { tree.trash(url) }
+    func noteListFocusEditor(_ list: NoteListController) { focusEditor() }
+    func fileTreeFocusEditor(_ tree: FileTreeController) { focusEditor() }
 
     // MARK: Toolbar
 

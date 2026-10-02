@@ -67,10 +67,37 @@ final class EditorTextView: NSTextView {
 
     // MARK: Typing
 
+    /// ⌘⌫ deletes to the start of the line, as it does in every text view.
+    /// The File menu gives the same keys to Move to Trash, and a menu sees a
+    /// key before the text view would, so the editor claims them first while
+    /// it has the keyboard; from a list, the keys still trash the selection.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.keyCode == 51, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+            window?.firstResponder === self, isEditable
+        {
+            deleteToBeginningOfLine(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     /// The completion list takes the arrow keys, Return and Escape while open.
     override func doCommand(by selector: Selector) {
         if let editor, editor.completion.handle(selector, from: editor) { return }
         super.doCommand(by: selector)
+    }
+
+    /// Escape puts the find bar away, or collapses the selection. The text
+    /// system would open its word completions, which a note rarely wants.
+    override func cancelOperation(_ sender: Any?) {
+        if let scrollView = enclosingScrollView, scrollView.isFindBarVisible {
+            let hide = NSMenuItem()
+            hide.tag = NSTextFinder.Action.hideFindInterface.rawValue
+            performTextFinderAction(hide)
+            return
+        }
+        let selection = selectedRange()
+        if selection.length > 0 { setSelectedRange(NSRange(location: selection.upperBound, length: 0)) }
     }
 
     /// Pasting an image, or image files, saves them beside the note and links
@@ -231,8 +258,14 @@ final class EditorTextView: NSTextView {
         guard let editor, let window else { return nil }
         let index = characterIndexForInsertion(at: point)
         guard let marker = editor.taskMarker(at: index) ?? editor.taskMarker(at: max(0, index - 1)) else { return nil }
-        let rect = firstRect(forCharacterRange: marker.range, actualRange: nil)
-        return convert(window.convertFromScreen(rect), from: nil).insetBy(dx: -3, dy: -2).contains(point) ? marker : nil
+        // The box sits in the marker's room, from where its brackets start.
+        let caret = firstRect(forCharacterRange: NSRange(location: marker.range.location, length: 0), actualRange: nil)
+        let at = convert(window.convertFromScreen(caret), from: nil)
+        let size = editor.styler.fonts.size
+        let side = (size * 0.95).rounded()
+        let center = CGPoint(x: at.minX + Styler.markerStep(for: size) * Styler.markerCenter, y: at.midY)
+        let box = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
+        return box.insetBy(dx: -4, dy: -3).contains(point) ? marker : nil
     }
 
     // MARK: Formatting
@@ -279,9 +312,62 @@ final class EditorTextView: NSTextView {
         setLinePrefix(sender.tag > 0 ? String(repeating: "#", count: sender.tag) + " " : "", replacing: #"^#{1,6}[ \t]+"#)
     }
 
-    @objc func toggleBulletList(_ sender: Any?) { setLinePrefix("- ", replacing: #"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?"#, toggles: true) }
-    @objc func toggleTaskList(_ sender: Any?) { setLinePrefix("- [ ] ", replacing: #"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?"#, toggles: true) }
+    private static let listPattern = #"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?"#
+
+    @objc func toggleBulletList(_ sender: Any?) { setLinePrefix("- ", replacing: Self.listPattern, toggles: true) }
+    @objc func toggleTaskList(_ sender: Any?) { setLinePrefix("- [ ] ", replacing: Self.listPattern, toggles: true) }
     @objc func toggleQuote(_ sender: Any?) { setLinePrefix("> ", replacing: #"^>[ \t]?"#, toggles: true) }
+
+    /// Numbers the selected lines from 1, or takes the numbers away when
+    /// they all have one.
+    @objc func toggleNumberedList(_ sender: Any?) {
+        guard let editor, editor.isMarkdown, let regex = try? NSRegularExpression(pattern: Self.listPattern) else { return }
+        let string = self.string as NSString
+        let lines = string.lineRange(for: selectedRange())
+        var texts: [(line: String, ending: String)] = []
+        string.enumerateSubstrings(in: lines, options: .byLines) { line, range, enclosing, _ in
+            texts.append((line ?? "", string.substring(with: NSRange(location: range.upperBound, length: enclosing.upperBound - range.upperBound))))
+        }
+        if texts.isEmpty { texts = [("", "")] }
+        let numbered = try? NSRegularExpression(pattern: #"^[ \t]*\d+[.)][ \t]+"#)
+        let allHave = texts.allSatisfy { numbered?.firstMatch(in: $0.line, range: NSRange(location: 0, length: ($0.line as NSString).length)) != nil }
+        let replacement = texts.enumerated().map { index, text -> String in
+            let range = NSRange(location: 0, length: (text.line as NSString).length)
+            let bare = regex.stringByReplacingMatches(in: text.line, range: range, withTemplate: "")
+            return (allHave ? bare : "\(index + 1). " + bare) + text.ending
+        }.joined()
+        insertText(replacement, replacementRange: lines)
+        let end = lines.location + (replacement as NSString).length - (texts.last?.ending as NSString? ?? "").length
+        setSelectedRange(NSRange(location: end, length: 0))
+    }
+
+    /// Fences the selected lines as a code block, or unfences a block the
+    /// selection is in.
+    @objc func toggleCodeBlock(_ sender: Any?) {
+        guard let editor, editor.isMarkdown else { return }
+        let string = self.string as NSString
+        let selection = selectedRange()
+        if editor.isCode(at: selection.location), let block = editor.codeBlockElement(at: selection.location) {
+            // Out of the fences: the lines between them stay.
+            let lines = string.substring(with: block).components(separatedBy: "\n")
+            guard lines.count >= 2 else { return }
+            let inner = lines.dropFirst().dropLast().joined(separator: "\n")
+            insertText(inner, replacementRange: block)
+            setSelectedRange(NSRange(location: block.location, length: (inner as NSString).length))
+            return
+        }
+        let lines = string.lineRange(for: selection)
+        var body = string.substring(with: lines)
+        let hadBreak = body.hasSuffix("\n")
+        if hadBreak { body.removeLast() }
+        let fenced = "```\n" + body + "\n```" + (hadBreak ? "\n" : "")
+        insertText(fenced, replacementRange: lines)
+        // The insertion point after the opening fence, to name the language.
+        setSelectedRange(NSRange(location: lines.location + 3, length: 0))
+    }
+
+    @objc func indentItems(_ sender: Any?) { _ = shiftItems(by: 1) }
+    @objc func outdentItems(_ sender: Any?) { _ = shiftItems(by: -1) }
 
     /// Gives the selected lines `prefix` in place of what `pattern` matches at
     /// their start. With `toggles`, lines that all have it lose it.
@@ -310,10 +396,44 @@ final class EditorTextView: NSTextView {
         case #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleStrikethrough(_:)),
             #selector(toggleInlineCode(_:)), #selector(toggleHighlight(_:)), #selector(insertLink(_:)),
             #selector(setHeadingLevel(_:)), #selector(toggleBulletList(_:)), #selector(toggleTaskList(_:)),
-            #selector(toggleQuote(_:)):
-            return editor?.isMarkdown == true
+            #selector(toggleNumberedList(_:)), #selector(toggleQuote(_:)), #selector(toggleCodeBlock(_:)),
+            #selector(indentItems(_:)), #selector(outdentItems(_:)):
+            guard let editor, editor.isMarkdown, isEditable else { return false }
+            // The menu shows what the insertion point is in: the heading
+            // level, the inline style, the kind of list.
+            item.state = isCurrent(item.action, level: item.tag, editor: editor) ? .on : .off
+            return true
         default:
             return super.validateMenuItem(item)
+        }
+    }
+
+    /// Whether the style a Format command toggles is on at the selection.
+    private func isCurrent(_ action: Selector?, level: Int, editor: EditorView) -> Bool {
+        let selection = selectedRange()
+        let string = self.string as NSString
+        guard string.length > 0 else { return action == #selector(setHeadingLevel(_:)) && level == 0 }
+        let lines = string.paragraphRange(for: selection)
+        let spans = editor.core.spans(in: lines)
+        func inside(_ kind: Int) -> Bool {
+            spans.contains { $0.kindValue == kind && Int($0.start) <= selection.location && selection.upperBound <= Int($0.end) }
+        }
+        switch action {
+        case #selector(setHeadingLevel(_:)):
+            let heading = spans.first { $0.kindValue == DeckleHeading }
+            return level == 0 ? heading == nil : heading.map { Int($0.level) == level } ?? false
+        case #selector(toggleBold(_:)): return inside(DeckleStrong)
+        case #selector(toggleItalic(_:)): return inside(DeckleEmphasis)
+        case #selector(toggleStrikethrough(_:)): return inside(DeckleStrike)
+        case #selector(toggleInlineCode(_:)): return inside(DeckleCode)
+        case #selector(toggleHighlight(_:)): return inside(DeckleHighlight)
+        case #selector(toggleQuote(_:)): return spans.contains { $0.kindValue == DeckleBlockQuote }
+        case #selector(toggleCodeBlock(_:)): return spans.contains { $0.kindValue == DeckleCodeBlock }
+        case #selector(toggleTaskList(_:)): return spans.contains { $0.kindValue == DeckleTaskMarker }
+        case #selector(toggleBulletList(_:)):
+            return spans.contains { $0.kindValue == DeckleListMarker && $0.flags == 0 } && !spans.contains { $0.kindValue == DeckleTaskMarker }
+        case #selector(toggleNumberedList(_:)): return spans.contains { $0.kindValue == DeckleListMarker && $0.flags != 0 }
+        default: return false
         }
     }
 }

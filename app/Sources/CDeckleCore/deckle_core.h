@@ -153,6 +153,9 @@ void deckle_ws_search(const DeckleWorkspace *ws, const char *query, uint64_t tok
 // `from`, or "". Free with deckle_string_free.
 char *deckle_ws_resolve_link(const DeckleWorkspace *ws, const char *target, const char *from);
 
+// How many notes link to the note at path, from the index alone.
+uint32_t deckle_ws_backlink_count(const DeckleWorkspace *ws, const char *path);
+
 // The notes linking to the note at `path`: a JSON array of
 // {path, title, lines: [{line, text, offset}]}. Free with deckle_string_free.
 char *deckle_ws_backlinks(const DeckleWorkspace *ws, const char *path);

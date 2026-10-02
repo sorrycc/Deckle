@@ -75,6 +75,8 @@ cp "$SWIFT_OUT/Deckle" "$APP/Contents/MacOS/Deckle"
 # Debug builds keep their symbols for the debugger.
 [ "$CONFIG" = "release" ] && strip -x "$APP/Contents/MacOS/Deckle"
 cp "$ROOT/app/Resources/Deckle.icns" "$APP/Contents/Resources/Deckle.icns"
+# The usage guide, which Help > Deckle Help opens in a tab.
+cp "$ROOT/docs/usage.md" "$APP/Contents/Resources/Deckle Help.md"
 # Bundled files the app reads at run time, such as the diagram renderer.
 if [ -d "$ROOT/app/Resources/Bundled" ]; then
     cp -R "$ROOT/app/Resources/Bundled/." "$APP/Contents/Resources/"

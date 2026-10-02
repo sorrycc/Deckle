@@ -7,11 +7,20 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+# Debug builds keep the parser and its dependencies quick enough to type with.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
 # Speed over size: the core parses the open document on the main thread on
 # every keystroke.
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+# Panics are caught at the parser, so a bad input leaves a section plain
+# rather than ending the app.
+panic = "unwind"
 strip = true

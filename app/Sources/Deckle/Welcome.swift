@@ -2,7 +2,7 @@ import AppKit
 
 /// The window shown when there is no workspace to open: the app, a button
 /// to choose a folder, and the folders opened before.
-final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
+final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSMenuDelegate {
     /// Asked to open a folder as the workspace, or nil to choose one.
     var onOpen: ((URL?) -> Void)?
 
@@ -22,6 +22,15 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         window.delegate = self
         window.contentView = makeContent()
         window.center()
+        applyAppearance()
+        NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged(_:)), name: .appearanceDidChange, object: nil)
+    }
+
+    @objc private func appearanceChanged(_ note: Notification) { applyAppearance() }
+
+    /// The theme's appearance, as the workspace window takes it.
+    private func applyAppearance() {
+        window?.appearance = Theme.current.appearance.flatMap { NSAppearance(named: $0) }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -40,7 +49,8 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
     }
 
     private func makeContent() -> NSView {
-        let root = NSView()
+        let root = DropView()
+        root.onDrop = { [weak self] url in self?.onOpen?(url) }
 
         // The app, on the left.
         let icon = NSImageView(image: NSApp.applicationIconImage)
@@ -53,13 +63,13 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         subtitle.textColor = .secondaryLabelColor
         let hint = NSTextField(wrappingLabelWithString: "A workspace is a folder. Its notes stay plain Markdown files, which any app can read.")
         hint.font = .systemFont(ofSize: 12)
-        hint.textColor = .tertiaryLabelColor
+        hint.textColor = .secondaryLabelColor
         hint.alignment = .center
         let open = NSButton(title: "Open Folder…", target: self, action: #selector(chooseFolder(_:)))
         open.bezelStyle = .glass
         open.controlSize = .large
-        open.keyEquivalent = "o"
-        open.keyEquivalentModifierMask = [.command]
+        // The one thing to do here: the default button, in the accent color.
+        open.keyEquivalent = "\r"
         open.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
         open.imagePosition = .imageLeading
 
@@ -83,6 +93,11 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(openSelected(_:))
+        table.onDelete = { [weak self] in self?.removeSelected(nil) }
+        table.setAccessibilityLabel("Recent Workspaces")
+        let menu = NSMenu()
+        menu.delegate = self
+        table.menu = menu
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.drawsBackground = false
@@ -104,6 +119,8 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         right.material = .sidebar
         right.blendingMode = .behindWindow
         right.state = .active
+        // A folder dropped anywhere on the window opens as the workspace.
+        root.registerForDraggedTypes([.fileURL])
         for view in [scroll, recentsTitle, empty] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             right.addSubview(view)
@@ -141,6 +158,31 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
 
     @objc private func chooseFolder(_ sender: Any?) { onOpen?(nil) }
 
+    private var menuRow: Int { table.clickedRow >= 0 ? table.clickedRow : table.selectedRow }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard recents.indices.contains(menuRow) else { return }
+        for (title, action) in [
+            ("Open", #selector(openSelected(_:))), ("Show in Finder", #selector(showInFinder(_:))),
+            ("Remove from Recents", #selector(removeSelected(_:))),
+        ] {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
+    }
+
+    @objc private func showInFinder(_ sender: Any?) {
+        guard recents.indices.contains(menuRow) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([recents[menuRow]])
+    }
+
+    @objc private func removeSelected(_ sender: Any?) {
+        guard recents.indices.contains(menuRow) else { return }
+        let url = recents[menuRow]
+        Settings.recentWorkspaces = Settings.recentWorkspaces.filter { $0.path != url.path }
+        reload()
+    }
+
     @objc private func openSelected(_ sender: Any?) {
         let row = table.clickedRow >= 0 ? table.clickedRow : table.selectedRow
         guard recents.indices.contains(row) else { return }
@@ -161,14 +203,50 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         return cell
     }
 
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { PaletteRowView() }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { WelcomeRowView() }
 }
 
-/// Return in the table opens the selected workspace.
+/// The window's content, which takes a dropped folder.
+private final class DropView: NSView {
+    var onDrop: ((URL) -> Void)?
+
+    private func folder(in info: NSDraggingInfo) -> URL? {
+        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return urls.first { $0.hasDirectoryPath }
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { folder(in: sender) == nil ? [] : .generic }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let url = folder(in: sender) else { return false }
+        onDrop?(url)
+        return true
+    }
+}
+
+/// Selection as a plate inset from the pane's edges, as the lists' are.
+final class WelcomeRowView: NSTableRowView {
+    override func drawSelection(in dirtyRect: NSRect) {
+        // The theme's accent, as the lists in the workspace window use.
+        (Theme.current.appearance == nil ? NSColor.controlAccentColor : Theme.current.accent).withAlphaComponent(0.22).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 1), xRadius: 8, yRadius: 8).fill()
+    }
+
+    override var isEmphasized: Bool {
+        get { false }
+        set {}
+    }
+}
+
+/// Return in the table opens the selected workspace; Delete takes it off
+/// the list.
 final class WelcomeTableView: NSTableView {
+    var onDelete: (() -> Void)?
+
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 76, let target = target, let doubleAction {
             NSApp.sendAction(doubleAction, to: target, from: self)
+        } else if event.keyCode == 51 || event.keyCode == 117 {
+            onDelete?()
         } else {
             super.keyDown(with: event)
         }
@@ -197,15 +275,16 @@ final class RecentCell: NSTableCellView {
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 30),
             name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            name.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            name.topAnchor.constraint(equalTo: topAnchor, constant: 9),
+            name.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            // The two lines together, in the middle of the row.
+            name.bottomAnchor.constraint(equalTo: centerYAnchor, constant: 1),
             path.leadingAnchor.constraint(equalTo: name.leadingAnchor),
             path.trailingAnchor.constraint(equalTo: name.trailingAnchor),
-            path.topAnchor.constraint(equalTo: name.bottomAnchor, constant: 1),
+            path.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
         ])
     }
 
@@ -213,7 +292,7 @@ final class RecentCell: NSTableCellView {
 
     func show(_ url: URL) {
         name.stringValue = url.lastPathComponent
-        path.stringValue = (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+        path.stringValue = (url.path as NSString).abbreviatingWithTildeInPath
         toolTip = url.path
     }
 }

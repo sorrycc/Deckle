@@ -131,6 +131,19 @@ final class Workspace {
     private var handle: OpaquePointer?
     private var searchToken: UInt64 = 0
     private var searchDone: ((SearchResults) -> Void)?
+    /// Quick open's matching runs here, off the main thread: a large index
+    /// takes a while to score, and the field keeps up with typing meanwhile.
+    private let findQueue = DispatchQueue(label: "dev.sorrycc.deckle.find", qos: .userInitiated)
+    private let findToken = Counter()
+
+    private final class Counter: @unchecked Sendable {
+        var value: UInt64 = 0
+    }
+
+    /// A core handle on its way to another thread.
+    private struct SharedHandle: @unchecked Sendable {
+        let raw: OpaquePointer
+    }
 
     init(url: URL) {
         self.url = url
@@ -152,6 +165,9 @@ final class Workspace {
 
     /// Stops the callbacks. The workspace answers nothing afterwards.
     func close() {
+        // A match in flight finishes first: it holds the handle.
+        findToken.value += 1
+        findQueue.sync {}
         deckle_ws_close(handle)
         handle = nil
     }
@@ -172,6 +188,26 @@ final class Workspace {
     func findFiles(_ query: String, limit: Int = 60, notesOnly: Bool = false) -> [FileMatch] {
         guard let handle else { return [] }
         return decode([FileMatch].self, from: take(deckle_ws_find_files(handle, query, UInt32(limit), notesOnly)), fallback: [])
+    }
+
+    /// Matches on a background thread and hands `done` the result on the
+    /// main one, unless a newer query came in meanwhile.
+    func findFiles(_ query: String, limit: Int = 60, notesOnly: Bool = false, done: @escaping @MainActor ([FileMatch]) -> Void) {
+        guard let handle else { return done([]) }
+        findToken.value += 1
+        let token = findToken.value
+        let counter = findToken
+        // The handle crosses to the find queue, which `close` drains before
+        // the handle goes; the core guards its index with a lock.
+        let shared = SharedHandle(raw: handle)
+        findQueue.async {
+            let json = take(deckle_ws_find_files(shared.raw, query, UInt32(limit), notesOnly))
+            let matches = decode([FileMatch].self, from: json, fallback: [])
+            DispatchQueue.main.async {
+                guard token == counter.value else { return }
+                MainActor.assumeIsolated { done(matches) }
+            }
+        }
     }
 
     /// Searches the text of every note. Only the newest search reports.
@@ -196,6 +232,12 @@ final class Workspace {
         guard let handle else { return nil }
         let path = take(deckle_ws_resolve_link(handle, target, source.path))
         return path.isEmpty ? nil : URL(fileURLWithPath: path)
+    }
+
+    /// How many notes link to `note`, without reading any of them.
+    func backlinkCount(to note: URL) -> Int {
+        guard let handle else { return 0 }
+        return Int(deckle_ws_backlink_count(handle, note.path))
     }
 
     func backlinks(to note: URL) -> [Backlink] {

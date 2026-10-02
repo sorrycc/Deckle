@@ -95,6 +95,9 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         glass.cornerRadius = 18
         glass.contentView = content
         panel.contentView = glass
+        self.glass = glass
+        field.setAccessibilityLabel("Quick Open")
+        panel.setAccessibilityLabel("Palette")
         heightConstraint = content.heightAnchor.constraint(equalToConstant: Self.fieldHeight)
         NSLayoutConstraint.activate([
             heightConstraint,
@@ -116,6 +119,8 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         ])
     }
 
+    private weak var glass: NSGlassEffectView?
+
     var isShown: Bool { panel.isVisible }
 
     // MARK: Showing
@@ -132,8 +137,10 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         case .headings: "Go to a heading"
         }
         field.stringValue = query
-        // The theme's appearance, so a light theme gets a light panel.
-        panel.appearance = window.appearance
+        field.setAccessibilityLabel(field.placeholderString)
+        // The glass is tinted with the page's color, so the rows read over
+        // whatever is behind them.
+        glass?.tintColor = Theme.current.background.withAlphaComponent(0.72)
         update()
         if !panel.isVisible {
             window.addChildWindow(panel, ordered: .above)
@@ -188,7 +195,11 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         let query = field.stringValue
         switch mode {
         case .files:
-            show(rows: fileRows(controller.workspace.findFiles(query), query: query), note: nil)
+            // The rows shown stay until the matches for this query arrive.
+            controller.workspace.findFiles(query) { [weak self] matches in
+                guard let self, self.mode == .files, self.field.stringValue == query else { return }
+                self.show(rows: self.fileRows(matches, query: query), note: nil)
+            }
         case .commands:
             show(rows: commandRows(query), note: nil)
         case .headings:
@@ -270,7 +281,7 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
                 let hit = NSIntersectionRange(NSRange(location: match.column, length: match.length), NSRange(location: 0, length: text.length))
                 text.addAttributes([
                     .foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                    .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.18),
+                    .backgroundColor: Theme.current.accent.withAlphaComponent(0.22),
                 ], range: hit)
                 let selection = NSRange(location: match.offset, length: match.length)
                 rows.append(Row(
@@ -281,7 +292,11 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         return rows
     }
 
-    /// Whether `query`'s characters appear in `text` in order, and how well.
+    /// Whether `query`'s characters appear in `text` in order, and how well:
+    /// a run of letters in a row counts most, then a letter that starts a
+    /// word, and the first word of all counts a little more. A letter found
+    /// in the middle of a word, far from the one before it, costs a little,
+    /// so "th" puts "Theme" and "Go to Heading" before "Hide Others".
     static func score(_ text: String, _ query: String) -> Int? {
         if query.isEmpty { return 0 }
         let haystack = Array(text.lowercased())
@@ -289,12 +304,40 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         var position = 0
         var previous = -2
         for ch in query.lowercased() where ch != " " {
-            guard let found = haystack[position...].firstIndex(of: ch) else { return nil }
-            score += found == previous + 1 ? 3 : (found == 0 || haystack[found - 1] == " " ? 2 : 0)
+            // The nearest place that reads well: a word's start or the
+            // letter after the last match, else the first place at all.
+            var best: Int?
+            var index = position
+            while index < haystack.count {
+                guard haystack[index] == ch else { index += 1; continue }
+                if best == nil { best = index }
+                if index == previous + 1 || Self.startsWord(haystack, at: index) {
+                    best = index
+                    break
+                }
+                index += 1
+            }
+            guard let found = best else { return nil }
+            if found == previous + 1 {
+                score += 4
+            } else if Self.startsWord(haystack, at: found) {
+                score += found == 0 ? 4 : 3
+            } else {
+                score -= 1
+            }
             previous = found
             position = found + 1
         }
-        return score - haystack.count / 8
+        // Between two equal matches, the shorter text is the closer one.
+        return score * 4 - haystack.count / 6
+    }
+
+    /// Whether the letter at `index` begins a word: the first letter, one
+    /// after a space or punctuation, or a capital after a small letter.
+    private static func startsWord(_ letters: [Character], at index: Int) -> Bool {
+        guard index > 0 else { return true }
+        let before = letters[index - 1]
+        return before == " " || before == "-" || before == "_" || before == "/" || before == "." || before == "(" || before == "›"
     }
 
     /// Every command in the menu bar that can run now.
@@ -356,7 +399,14 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         let key = item.keyEquivalent
         if flags.contains(.shift) || (key.uppercased() == key && key.lowercased() != key) { text += "⇧" }
         if flags.contains(.command) { text += "⌘" }
-        return text + (key == "\t" ? "⇥" : key.uppercased())
+        let name = switch key {
+        case "\t": "⇥"
+        case "\u{8}", "\u{7f}": "⌫"
+        case "\r", "\n": "↩"
+        case " ": "Space"
+        default: key.uppercased()
+        }
+        return text + name
     }
 
     private func headingRows(_ query: String) -> [Row] {
@@ -409,11 +459,17 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
     // MARK: Table
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { Self.rowHeight }
+
+    /// Search results group under their note: a taller header row, with
+    /// room above it, and shorter match rows nested under it.
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard mode == .search else { return Self.rowHeight }
+        return rows[row].isHeader ? (row == 0 ? 32 : 40) : 28
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: .init("palette"), owner: self) as? PaletteCell ?? PaletteCell()
-        cell.show(rows[row])
+        cell.show(rows[row], nested: mode == .search && !rows[row].isHeader, headerGap: mode == .search && rows[row].isHeader && row > 0)
         return cell
     }
 
@@ -425,10 +481,10 @@ final class PalettePanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// Selection as a rounded, tinted plate.
+/// Selection as a rounded, tinted plate in the theme's accent.
 final class PaletteRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
-        NSColor.controlAccentColor.withAlphaComponent(0.22).setFill()
+        Theme.current.accent.withAlphaComponent(0.22).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 1), xRadius: 8, yRadius: 8).fill()
     }
 
@@ -445,6 +501,9 @@ final class PaletteCell: NSTableCellView {
     private let trailing = NSTextField(labelWithString: "")
     private var titleLeading: NSLayoutConstraint!
     private var titleLeadingNoIcon: NSLayoutConstraint!
+    private var titleLeadingNested: NSLayoutConstraint!
+    private var titleCentered: NSLayoutConstraint!
+    private var titleLowered: NSLayoutConstraint!
 
     init() {
         super.init(frame: .zero)
@@ -467,29 +526,39 @@ final class PaletteCell: NSTableCellView {
         trailing.setContentCompressionResistancePriority(.required, for: .horizontal)
         titleLeading = title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10)
         titleLeadingNoIcon = title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14)
+        // Under a note's title, where its icon leaves the text.
+        titleLeadingNested = title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 40)
+        titleCentered = title.centerYAnchor.constraint(equalTo: centerYAnchor)
+        // A header with room above it sits in the lower part of its row.
+        titleLowered = title.centerYAnchor.constraint(equalTo: bottomAnchor, constant: -16)
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.centerYAnchor.constraint(equalTo: title.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 18),
             titleLeading,
-            title.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleCentered,
             detail.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 10),
             detail.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
             detail.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -10),
             trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trailing.centerYAnchor.constraint(equalTo: title.centerYAnchor),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func show(_ row: Palette.Row) {
+    func show(_ row: Palette.Row, nested: Bool = false, headerGap: Bool = false) {
         icon.image = row.icon
         icon.isHidden = row.icon == nil
-        titleLeading.isActive = row.icon != nil
-        titleLeadingNoIcon.isActive = row.icon == nil
+        // Off before on, so two never hold at once.
+        NSLayoutConstraint.deactivate([titleLeading, titleLeadingNoIcon, titleLeadingNested, titleCentered, titleLowered])
+        NSLayoutConstraint.activate([
+            row.icon != nil ? titleLeading : nested ? titleLeadingNested : titleLeadingNoIcon,
+            headerGap ? titleLowered : titleCentered,
+        ])
         title.attributedStringValue = row.title
         detail.attributedStringValue = row.detail ?? NSAttributedString()
         trailing.stringValue = row.trailing ?? ""
+        trailing.textColor = row.isHeader ? .tertiaryLabelColor : .secondaryLabelColor
     }
 }

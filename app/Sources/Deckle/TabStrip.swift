@@ -7,6 +7,8 @@ protocol TabStripDelegate: AnyObject {
     /// The user dragged `tab` to `index`.
     func tabStrip(_ strip: TabStripView, move tab: Tab, to index: Int)
     func tabStripNewTab(_ strip: TabStripView)
+    func tabStrip(_ strip: TabStripView, closeOthers tab: Tab)
+    func tabStrip(_ strip: TabStripView, closeAfter tab: Tab)
 }
 
 /// The tabs, as a row in the toolbar or a column. In a row, tabs share the
@@ -56,9 +58,38 @@ final class TabStripView: NSView {
         newTabRow.isHidden = true
         newTabRow.onClick = { [weak self] in self.map { $0.delegate?.tabStripNewTab($0) } }
         addSubview(newTabRow)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.tabGroup)
+        setAccessibilityLabel("Tabs")
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override func accessibilityChildren() -> [Any]? { items + (isVertical ? [newTabRow] : []) }
+
+    /// The menu of a tab: closing it and its neighbours, and its file.
+    fileprivate func menu(for item: TabItemView) -> NSMenu {
+        let menu = NSMenu()
+        let tab = item.tab
+        func add(_ title: String, enabled: Bool = true, _ run: @escaping () -> Void) {
+            let entry = ActionMenuItem(title: title, run: run)
+            entry.isEnabled = enabled
+            menu.addItem(entry)
+        }
+        add("Close Tab") { [weak self] in self.map { $0.delegate?.tabStrip($0, close: tab) } }
+        add("Close Other Tabs", enabled: items.count > 1) { [weak self] in self.map { $0.delegate?.tabStrip($0, closeOthers: tab) } }
+        add("Close Tabs to the Right", enabled: items.last !== item) { [weak self] in self.map { $0.delegate?.tabStrip($0, closeAfter: tab) } }
+        if let url = tab.url {
+            menu.addItem(.separator())
+            add("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            add("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.path, forType: .string)
+            }
+            add("Open in Default App") { NSWorkspace.shared.open(url) }
+        }
+        return menu
+    }
 
     /// Rebuilds the row for `tabs`, reusing item views for tabs already shown.
     /// Tabs that move slide to their new place, and new ones fade in.
@@ -295,6 +326,9 @@ final class TabItemView: NSView {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.radioButton)
+        setAccessibilitySubrole(.tabButtonSubrole)
         iconLeading = icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10)
         iconCentered = icon.centerXAnchor.constraint(equalTo: centerXAnchor)
         // On hover the close button takes the icon's place, as in Safari.
@@ -328,13 +362,29 @@ final class TabItemView: NSView {
         if titleLabel.stringValue != title {
             titleLabel.stringValue = title
             toolTip = title
+            setAccessibilityLabel(title)
             // A file name keeps its extension when cut short.
             titleLabel.lineBreakMode = title.contains(".") ? .byTruncatingMiddle : .byTruncatingTail
         }
+        setAccessibilityValue(isSelected ? 1 : 0)
         icon.image = tab.icon
         icon.contentTintColor = .secondaryLabelColor
         updateAppearance()
     }
+
+    override func accessibilityPerformPress() -> Bool {
+        onSelect?()
+        return true
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        [NSAccessibilityCustomAction(name: "Close Tab") { [weak self] in
+            self?.onClose?()
+            return true
+        }]
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? { strip?.menu(for: self) }
 
     private func updateAppearance() {
         let fill: NSColor = isSelected ? .labelColor.withAlphaComponent(0.11)
@@ -370,6 +420,7 @@ final class TabItemView: NSView {
     override func mouseExited(with event: NSEvent) { isHovered = false }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) { return super.mouseDown(with: event) }
         onSelect?()
         strip?.beginDrag(self, with: event)
     }
@@ -414,6 +465,9 @@ final class NewTabRowView: NSView {
         layer?.cornerRadius = 9
         layer?.cornerCurve = .continuous
         toolTip = "New Tab"
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("New Tab")
 
         icon.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")?
             .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))
@@ -464,5 +518,25 @@ final class NewTabRowView: NSView {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
     }
 
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return true
+    }
+
     override var mouseDownCanMoveWindow: Bool { false }
+}
+
+/// A menu item that runs a closure.
+final class ActionMenuItem: NSMenuItem {
+    private let run: () -> Void
+
+    init(title: String, run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(perform(_:)), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    @objc private func perform(_ sender: Any?) { run() }
 }

@@ -2,7 +2,10 @@ import AppKit
 
 @MainActor
 protocol FileTreeDelegate: AnyObject {
-    func fileTree(_ tree: FileTreeController, open url: URL, inNewTab: Bool)
+    /// `focus` asks for the keyboard to go to the editor: a click does, a
+    /// keyboard move through the tree doesn't.
+    func fileTree(_ tree: FileTreeController, open url: URL, inNewTab: Bool, focus: Bool)
+    func fileTreeFocusEditor(_ tree: FileTreeController)
     func fileTree(_ tree: FileTreeController, showFolder url: URL)
     func fileTree(_ tree: FileTreeController, moved old: URL, to new: URL)
     func fileTree(_ tree: FileTreeController, removed url: URL)
@@ -107,9 +110,22 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         outline.registerForDraggedTypes([.fileURL])
         outline.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
         outline.setDraggingSourceOperationMask(.copy, forLocal: false)
+        outline.setAccessibilityLabel("Files")
+        outline.onReturn = { [weak self] in
+            guard let self, let node = self.outline.item(atRow: self.outline.selectedRow) as? FileNode else { return }
+            if node.isDirectory {
+                if self.outline.isItemExpanded(node) { self.outline.collapseItem(node) } else { self.outline.expandItem(node) }
+            } else {
+                self.delegate?.fileTreeFocusEditor(self)
+            }
+        }
         let menu = NSMenu()
         menu.delegate = self
         outline.menu = menu
+        // A new theme repaints the rows, whose selection takes its accent,
+        // even when the appearance stays light or dark.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(themeChanged(_:)), name: .appearanceDidChange, object: nil)
 
         scrollView.documentView = outline
         scrollView.hasVerticalScroller = true
@@ -173,6 +189,18 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     var expandedPaths: [String] {
         (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? FileNode }
             .filter { $0.isDirectory && !$0.isGroup && !$0.isWorkspace && outline.isItemExpanded($0) }.map(\.url.path)
+    }
+
+    /// The file or folder a command in the tree acts on; the workspace and
+    /// the Starred group aren't ones.
+    var selectedURL: URL? {
+        guard let node = outline.item(atRow: outline.selectedRow) as? FileNode, !node.isGroup, !node.isWorkspace else { return nil }
+        return node.url
+    }
+
+    /// Puts the keyboard in the tree.
+    func focus() {
+        view.window?.makeFirstResponder(outline)
     }
 
     /// The folder a new note goes in: the selected folder, or the selected
@@ -269,12 +297,16 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         if let node = node(for: url) { selectRow(of: node) }
     }
 
+    @objc private func themeChanged(_ note: Notification) {
+        outline.enumerateAvailableRowViews { row, _ in row.needsDisplay = true }
+    }
+
     private func selectRow(of node: FileNode) {
         let row = outline.row(forItem: node)
         guard row >= 0, row != outline.selectedRow else { return }
         isSelectingProgrammatically = true
         outline.selectRowIndexes([row], byExtendingSelection: false)
-        outline.scrollRowToVisible(row)
+        outline.reveal(row: row)
         isSelectingProgrammatically = false
     }
 
@@ -368,8 +400,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         if node.isDirectory {
             delegate?.fileTree(self, showFolder: node.url)
         } else {
-            let newTab = NSApp.currentEvent?.modifierFlags.contains(.command) ?? false
-            delegate?.fileTree(self, open: node.url, inNewTab: newTab)
+            let event = NSApp.currentEvent
+            let newTab = event?.modifierFlags.contains(.command) ?? false
+            // Arrowing through the tree keeps the keyboard in the tree.
+            delegate?.fileTree(self, open: node.url, inNewTab: newTab, focus: event?.type != .keyDown)
         }
     }
 
@@ -378,8 +412,20 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         if node.isDirectory {
             if outline.isItemExpanded(node) { outline.collapseItem(node) } else { outline.expandItem(node) }
         } else {
-            delegate?.fileTree(self, open: node.url, inNewTab: true)
+            delegate?.fileTree(self, open: node.url, inNewTab: true, focus: true)
         }
+    }
+
+    /// Rows take the theme's accent when they are selected, as the rest of
+    /// the window does; the System theme keeps the source list's own.
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+        // Every row is a themed one, which draws the system's selection under
+        // the System theme, so a change of theme restyles rows already made.
+        let id = NSUserInterfaceItemIdentifier("themedRow")
+        if let row = outlineView.makeView(withIdentifier: id, owner: self) as? ThemedRowView { return row }
+        let row = ThemedRowView()
+        row.identifier = id
+        return row
     }
 
     // MARK: Renaming
@@ -484,7 +530,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
             return nil
         }
         folderChanged(folder)
-        delegate?.fileTree(self, open: url, inNewTab: false)
+        delegate?.fileTree(self, open: url, inNewTab: false, focus: true)
         select(url)
         return url
     }
@@ -520,7 +566,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 
     @objc private func openInNewTab(_ sender: Any?) {
-        if let node = clickedNode { delegate?.fileTree(self, open: node.url, inNewTab: true) }
+        if let node = clickedNode { delegate?.fileTree(self, open: node.url, inNewTab: true, focus: true) }
     }
 
     @objc private func toggleStar(_ sender: Any?) {
@@ -542,16 +588,38 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         trash(node.url)
     }
 
-    /// Moves a file or folder to the Trash, where it can be put back from.
+    /// Moves a file or folder to the Trash, where it can be put back from,
+    /// and Edit > Undo brings it back.
     func trash(_ url: URL) {
+        var trashed: NSURL?
         do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
         } catch {
             presentError(error)
             return
         }
         delegate?.fileTree(self, removed: url)
         folderChanged(url.deletingLastPathComponent())
+        guard let trashed = trashed as URL?, let undo = view.window?.undoManager else { return }
+        undo.registerUndo(withTarget: self) { tree in
+            MainActor.assumeIsolated { tree.restore(trashed, to: url) }
+        }
+        undo.setActionName("Move to Trash")
+    }
+
+    /// Puts a trashed file back where it was.
+    private func restore(_ trashed: URL, to url: URL) {
+        do {
+            try FileManager.default.moveItem(at: trashed, to: url)
+        } catch {
+            presentError(error)
+            return
+        }
+        folderChanged(url.deletingLastPathComponent())
+        if !url.hasDirectoryPath { delegate?.fileTree(self, open: url, inNewTab: false, focus: false) }
+        view.window?.undoManager?.registerUndo(withTarget: self) { tree in
+            MainActor.assumeIsolated { tree.trash(url) }
+        }
     }
 
     // MARK: Dragging
@@ -578,13 +646,21 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         let moves = urls.filter { $0.deletingLastPathComponent().path != folder.path && !folder.path.hasPrefix($0.path) }
         guard !moves.isEmpty else { return [] }
-        return info.draggingSource as? NSOutlineView === outlineView ? .move : .copy
+        return isLocal(info, to: outlineView) ? .move : .copy
+    }
+
+    /// Whether a drag comes from this window, the tree itself or the note
+    /// list beside it: those drops move the files. Files from Finder or
+    /// another app are copied in.
+    private func isLocal(_ info: NSDraggingInfo, to outlineView: NSOutlineView) -> Bool {
+        guard let source = info.draggingSource as? NSView else { return false }
+        return source.window != nil && source.window === outlineView.window
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
         guard let folder = dropFolder(for: item) else { return false }
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        let local = info.draggingSource as? NSOutlineView === outlineView
+        let local = isLocal(info, to: outlineView)
         var done = false
         for url in urls where url.deletingLastPathComponent().path != folder.path {
             let base = url.deletingPathExtension().lastPathComponent
@@ -600,10 +676,42 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 }
 
-/// The tree's outline. Escape clears the selection, which shows every note.
+/// The tree's outline. Escape clears the selection, which shows every note,
+/// and Return opens a folder or hands a file's editor the keyboard. ⌘⌫ moves
+/// the selection to the Trash through the File menu, which sees the keys
+/// before the outline would.
 final class FileOutlineView: NSOutlineView {
+    var onReturn: (() -> Void)?
+
     override func cancelOperation(_ sender: Any?) {
         guard selectedRow >= 0 else { return super.cancelOperation(sender) }
         deselectAll(sender)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 36 where selectedRow >= 0, 76 where selectedRow >= 0:
+            onReturn?()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+}
+
+/// A selected row as a plate of the theme's accent, with the text left as
+/// it is rather than turned white. Under the System theme it draws the
+/// system's own selection.
+final class ThemedRowView: NSTableRowView {
+    private var isThemed: Bool { Theme.current.appearance != nil }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isThemed else { return super.drawSelection(in: dirtyRect) }
+        Theme.current.accent.withAlphaComponent(0.18).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 7, yRadius: 7).fill()
+    }
+
+    override var isEmphasized: Bool {
+        get { isThemed ? false : super.isEmphasized }
+        set { super.isEmphasized = newValue }
     }
 }
