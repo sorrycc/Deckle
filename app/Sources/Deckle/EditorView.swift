@@ -568,10 +568,14 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let overLink = isMarkdown && textView.bounds.contains(point) && flags.contains(.command) ? linkElement(at: index) : nil
         let hand = isMarkdown && textView.bounds.contains(point)
             && (overLink != nil || textView.taskBox(at: point) != nil)
-        if hand != wantsPointingHand {
-            wantsPointingHand = hand
-            (hand ? NSCursor.pointingHand : NSCursor.iBeam).set()
+        // The text view puts its I-beam back as the pointer moves, so the
+        // hand is set again on every move, not only when it changes.
+        if hand {
+            NSCursor.pointingHand.set()
+        } else if wantsPointingHand {
+            NSCursor.iBeam.set()
         }
+        wantsPointingHand = hand
         underline(overLink)
         guard isMarkdown, textView.bounds.contains(point), let block = codeBlock(at: index), let band = blockBand(block),
             point.x >= band.minX, point.x <= band.maxX, point.y >= band.minY
@@ -914,14 +918,18 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         return nil
     }
 
-    /// The task checkbox at a character, if there is one.
-    func taskMarker(at index: Int) -> DeckleSpan? {
+    /// The task on the line holding a character, when its box is drawn:
+    /// its syntax is folded away rather than shown for editing.
+    func drawnTask(onLineAt index: Int) -> DeckleSpan? {
         guard isMarkdown, storage.length > 0 else { return nil }
         let string = storage.string as NSString
-        let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
-        return core.spans(in: lines).first {
-            $0.kindValue == DeckleTaskMarker && Int($0.start) <= index && index < Int($0.end)
+        let line = string.lineRange(for: NSRange(location: min(index, string.length - 1), length: 0))
+        let spans = core.spans(in: line)
+        guard let task = spans.first(where: { $0.kindValue == DeckleTaskMarker && NSLocationInRange(Int($0.start), line) }) else {
+            return nil
         }
+        let marker = spans.first { $0.kindValue == DeckleListMarker && $0.element == task.element && $0.end <= task.start }
+        return styler.isRevealed(marker.map { Styler.taskPrefix(of: $0, task: task) } ?? task.element) ? nil : task
     }
 
     /// Jumps between a footnote's reference and its definition.

@@ -253,11 +253,13 @@ final class EditorTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
-    /// The task box drawn at `point`, if there is one.
+    /// The task box drawn at `point`, if there is one. The line comes from
+    /// the text under the point, the box from where it is drawn: its
+    /// brackets fold to nothing, so the characters under the box belong to
+    /// the space after them and the start of the text.
     func taskBox(at point: NSPoint) -> DeckleSpan? {
         guard let editor, let window else { return nil }
-        let index = characterIndexForInsertion(at: point)
-        guard let marker = editor.taskMarker(at: index) ?? editor.taskMarker(at: max(0, index - 1)) else { return nil }
+        guard let marker = editor.drawnTask(onLineAt: characterIndexForInsertion(at: point)) else { return nil }
         // The box sits in the marker's room, from where its brackets start.
         let caret = firstRect(forCharacterRange: NSRange(location: marker.range.location, length: 0), actualRange: nil)
         let at = convert(window.convertFromScreen(caret), from: nil)
@@ -316,6 +318,71 @@ final class EditorTextView: NSTextView {
 
     @objc func toggleBulletList(_ sender: Any?) { setLinePrefix("- ", replacing: Self.listPattern, toggles: true) }
     @objc func toggleTaskList(_ sender: Any?) { setLinePrefix("- [ ] ", replacing: Self.listPattern, toggles: true) }
+    /// ⌘↩ on one item steps it from a list item to an open task, a done
+    /// one and back. Over several, it ticks every task, or clears them all
+    /// when all are done; with no tasks among them, each item gets a box.
+    @objc func toggleTaskDone(_ sender: Any?) {
+        guard let editor else { return }
+        let edits = taskEdits(editor: editor)
+        guard !edits.isEmpty else { return }
+        let string = self.string as NSString
+        let selection = selectedRange()
+        let lines = string.lineRange(for: selection)
+        let block = NSMutableString(string: string.substring(with: lines))
+        for edit in edits.reversed() {
+            block.replaceCharacters(in: NSRange(location: edit.range.location - lines.location, length: edit.range.length), with: edit.text)
+        }
+        // The selection keeps its place in the text around the edits.
+        func moved(_ index: Int) -> Int {
+            var shift = 0
+            for edit in edits {
+                let length = (edit.text as NSString).length
+                if edit.range.upperBound <= index {
+                    shift += length - edit.range.length
+                } else if edit.range.location < index {
+                    return edit.range.location + length + shift
+                }
+            }
+            return index + shift
+        }
+        let start = moved(selection.location)
+        let end = moved(selection.upperBound)
+        insertText(block as String, replacementRange: lines)
+        setSelectedRange(NSRange(location: start, length: end - start))
+    }
+
+    /// What ⌘↩ would change in the selected lines, in order.
+    private func taskEdits(editor: EditorView) -> [(range: NSRange, text: String)] {
+        guard editor.isMarkdown, isEditable else { return [] }
+        let string = self.string as NSString
+        let lines = string.lineRange(for: selectedRange())
+        guard lines.length > 0 else { return [] }
+        let spans = editor.core.spans(in: lines)
+        var items: [(marker: DeckleSpan, task: DeckleSpan?)] = []
+        string.enumerateSubstrings(in: lines, options: [.byLines, .substringNotRequired]) { _, line, _, _ in
+            // The innermost item that starts on the line.
+            guard let marker = spans.filter({ $0.kindValue == DeckleListMarker && NSLocationInRange(Int($0.start), line) })
+                .max(by: { $0.start < $1.start })
+            else { return }
+            let task = spans.first { $0.kindValue == DeckleTaskMarker && $0.element == marker.element && $0.start >= marker.end }
+            items.append((marker, task))
+        }
+        func box(_ marker: DeckleSpan) -> (range: NSRange, text: String) {
+            let end = Int(marker.end)
+            let spaced = end < string.length && (string.character(at: end) == 0x20 || string.character(at: end) == 0x09)
+            return (NSRange(location: end, length: 0), spaced ? " [ ]" : " [ ] ")
+        }
+        if items.count == 1, let item = items.first {
+            guard let task = item.task else { return [box(item.marker)] }
+            if task.flags == 0 { return [(task.range, "[x]")] }
+            return [(NSRange(location: Int(item.marker.end), length: Int(task.end) - Int(item.marker.end)), "")]
+        }
+        let tasks = items.compactMap(\.task)
+        if tasks.isEmpty { return items.map { box($0.marker) } }
+        let check = tasks.contains { $0.flags == 0 }
+        return tasks.filter { ($0.flags != 0) != check }.map { ($0.range, check ? "[x]" : "[ ]") }
+    }
+
     @objc func toggleQuote(_ sender: Any?) { setLinePrefix("> ", replacing: #"^>[ \t]?"#, toggles: true) }
 
     /// Numbers the selected lines from 1, or takes the numbers away when
@@ -393,6 +460,9 @@ final class EditorTextView: NSTextView {
 
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(toggleTaskDone(_:)):
+            guard let editor else { return false }
+            return !taskEdits(editor: editor).isEmpty
         case #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleStrikethrough(_:)),
             #selector(toggleInlineCode(_:)), #selector(toggleHighlight(_:)), #selector(insertLink(_:)),
             #selector(setHeadingLevel(_:)), #selector(toggleBulletList(_:)), #selector(toggleTaskList(_:)),

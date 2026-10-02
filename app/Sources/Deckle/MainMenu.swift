@@ -115,6 +115,7 @@ enum MainMenu {
         item(format, "Bulleted List", #selector(EditorTextView.toggleBulletList(_:)), "8", [.command, .shift])
         item(format, "Numbered List", #selector(EditorTextView.toggleNumberedList(_:)), "7", [.command, .shift])
         item(format, "Task List", #selector(EditorTextView.toggleTaskList(_:)), "9", [.command, .shift])
+        item(format, "Toggle Done", #selector(EditorTextView.toggleTaskDone(_:)), "\r", [.command])
         item(format, "Quote", #selector(EditorTextView.toggleQuote(_:)), "'", [.command])
         item(format, "Code Block", #selector(EditorTextView.toggleCodeBlock(_:)), "c", [.command, .option])
         format.addItem(.separator())

@@ -20,7 +20,7 @@ The arrow keys move through the tree and the list without taking the keyboard aw
 | `*text*`, `**text**`, `~~text~~`, `==text==` | Italic, bold, struck, highlighted |
 | `` `code` `` and fenced code blocks with a language | Code, highlighted |
 | `H~2~O`, `x^2^` | Subscript, superscript |
-| `- `, `1. `, `- [ ] ` | Lists and tasks; click a box to tick it |
+| `- `, `1. `, `- [ ] ` | Lists and tasks; click a box or press ⌘↩ to tick it |
 | `> `, `> [!TIP] Title` | Quotes and callouts (note, tip, important, warning, caution) |
 | `[text](url)`, `[[Note]]`, `[[Note\|label]]` | Links and wikilinks |
 | `[^1]` and `[^1]: text` | Footnotes, shown as raised numbers |
@@ -33,6 +33,7 @@ Markdown's syntax shows only around the selection: `-` becomes a bullet, `[ ]` a
 
 - Return continues a list or quote; Return on an empty item ends it. Tab and Shift-Tab, or ⌥⌘] and ⌥⌘[, indent and outdent list items.
 - The Format menu toggles bold, italic, strikethrough, highlights, code, links, headings, bulleted, numbered and task lists, quotes and code blocks, and shows what the insertion point is in.
+- ⌘↩ (Format > Toggle Done) steps a list item to an open task, a done one and back. Over several lines it ticks every task, or clears them all when all are done.
 - Escape puts the find bar away or collapses the selection.
 - `/` at the start of a line opens a menu of blocks to insert.
 - `[[` completes the names of notes.
