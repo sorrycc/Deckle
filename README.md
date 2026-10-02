@@ -38,6 +38,7 @@ See the [user guide](docs/usage.md) for details.
 scripts/bundle.sh                    # release build; pass `debug` for a debug build
 open build/Deckle.app
 open -a build/Deckle.app ~/Notes     # open a folder as the workspace
+open -a build/Deckle.app note.md     # open a file in a tab
 ```
 
 The script builds the Rust core and the Swift app, then assembles an ad-hoc signed `build/Deckle.app`. Set `DECKLE_OUT` and `DECKLE_BUNDLE_ID` to build a separate copy with its own settings.

@@ -86,18 +86,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         urls.forEach(open)
     }
 
-    /// Opens a folder as the workspace, or a file in the workspace it is in.
+    /// Opens a folder as the workspace. A file opens in a new tab of the
+    /// workspace window, wherever it lives, and leaves the workspace as it is.
     private func open(_ url: URL) {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return }
         if isDirectory.boolValue { return openWorkspace(url) }
-        let real = url.resolvingSymlinksInPath()
-        if let current = windowController, real.path.hasPrefix(current.workspace.url.path + "/") {
-            current.open(real)
-        } else {
-            openWorkspace(url.deletingLastPathComponent())
-            windowController?.open(real)
+        let file = url.resolvingSymlinksInPath()
+        welcomeController?.close()
+        if windowController == nil {
+            if let last = Settings.lastWorkspace, FileManager.default.fileExists(atPath: last.path) {
+                openWorkspace(last)
+            } else {
+                // No workspace to open it in: the file's folder, not
+                // remembered, so the next launch doesn't come back to it.
+                openWorkspace(file.deletingLastPathComponent(), remember: false)
+            }
         }
+        windowController?.showWindow(nil)
+        windowController?.open(file, inNewTab: true)
     }
 
     func openWorkspace(_ url: URL, remember: Bool = true) {
@@ -122,16 +129,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if remember { Settings.noteOpened(workspace: controller.workspace.url) }
     }
 
-    /// Asks for a folder to open as the workspace.
+    /// Asks for a folder to open as the workspace, or a file to open in a tab.
     @objc func chooseWorkspace() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
         panel.canCreateDirectories = true
         panel.prompt = "Open"
-        panel.message = "Choose a folder of notes. Deckle keeps them as plain Markdown files."
+        panel.message = "Choose a folder of notes to open as the workspace, or a file to open in a tab."
         if panel.runModal() == .OK, let url = panel.url {
-            openWorkspace(url)
+            open(url)
         } else if windowController == nil {
             showWelcome()
         }
@@ -167,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let controller = welcomeController ?? WelcomeWindowController()
         welcomeController = controller
         controller.onOpen = { [weak self] url in
-            if let url { self?.openWorkspace(url) } else { self?.chooseWorkspace() }
+            if let url { self?.open(url) } else { self?.chooseWorkspace() }
         }
         controller.showWindow(nil)
     }

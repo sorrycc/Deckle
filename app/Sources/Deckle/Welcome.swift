@@ -3,7 +3,8 @@ import AppKit
 /// The window shown when there is no workspace to open: the app, a button
 /// to choose a folder, and the folders opened before.
 final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSMenuDelegate {
-    /// Asked to open a folder as the workspace, or nil to choose one.
+    /// Asked to open a folder as the workspace or a file in a tab, or nil to
+    /// choose one.
     var onOpen: ((URL?) -> Void)?
 
     private let table = WelcomeTableView()
@@ -65,7 +66,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         hint.font = .systemFont(ofSize: 12)
         hint.textColor = .secondaryLabelColor
         hint.alignment = .center
-        let open = NSButton(title: "Open Folder…", target: self, action: #selector(chooseFolder(_:)))
+        let open = NSButton(title: "Open…", target: self, action: #selector(chooseFolder(_:)))
         open.bezelStyle = .glass
         open.controlSize = .large
         // The one thing to do here: the default button, in the accent color.
@@ -119,7 +120,8 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         right.material = .sidebar
         right.blendingMode = .behindWindow
         right.state = .active
-        // A folder dropped anywhere on the window opens as the workspace.
+        // A folder dropped anywhere on the window opens as the workspace, a
+        // file in a tab.
         root.registerForDraggedTypes([.fileURL])
         for view in [scroll, recentsTitle, empty] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -206,18 +208,19 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { WelcomeRowView() }
 }
 
-/// The window's content, which takes a dropped folder.
+/// The window's content, which takes a dropped folder or file.
 private final class DropView: NSView {
     var onDrop: ((URL) -> Void)?
 
-    private func folder(in info: NSDraggingInfo) -> URL? {
+    /// A folder among the dropped items, or else the first file.
+    private func item(in info: NSDraggingInfo) -> URL? {
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        return urls.first { $0.hasDirectoryPath }
+        return urls.first { $0.hasDirectoryPath } ?? urls.first
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { folder(in: sender) == nil ? [] : .generic }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { item(in: sender) == nil ? [] : .generic }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let url = folder(in: sender) else { return false }
+        guard let url = item(in: sender) else { return false }
         onDrop?(url)
         return true
     }
