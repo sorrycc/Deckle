@@ -62,4 +62,12 @@ Run the core's tests with `cargo test --release`.
 
 ## License
 
-[MIT](LICENSE). LXGW WenKai Lite is © LXGW and The Klee Project Authors, under the [SIL Open Font License 1.1](app/Resources/Bundled/Fonts/OFL.txt).
+Deckle is released under the [MIT License](LICENSE).
+
+Deckle bundles the following third-party software:
+
+| Component | Version | License |
+|---|---|---|
+| [KaTeX](https://katex.org) | 0.16.22 | [MIT](app/Resources/Bundled/Renderer/LICENSE-KaTeX.txt), © Khan Academy and other contributors |
+| [Mermaid](https://mermaid.js.org) | 11.12.0 | [MIT](app/Resources/Bundled/Renderer/LICENSE-Mermaid.txt), © Knut Sveidqvist |
+| [LXGW WenKai Lite](https://github.com/lxgw/LxgwWenKai-Lite) | | [SIL Open Font License 1.1](app/Resources/Bundled/Fonts/OFL.txt), © LXGW and The Klee Project Authors |
