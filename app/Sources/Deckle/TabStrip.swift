@@ -260,7 +260,7 @@ final class TabItemView: NSView {
         didSet {
             guard isSelected != oldValue else { return }
             titleLabel.font = .systemFont(ofSize: 12, weight: isSelected ? .medium : .regular)
-            updateAppearance()
+            updateState()
         }
     }
     /// Too narrow for a title: the icon sits in the middle.
@@ -271,7 +271,7 @@ final class TabItemView: NSView {
             // Off before on, so the two never hold at once.
             (isCompact ? iconLeading : iconCentered).isActive = false
             (isCompact ? iconCentered : iconLeading).isActive = true
-            updateAppearance()
+            updateState()
         }
     }
 
@@ -283,14 +283,14 @@ final class TabItemView: NSView {
             // Off before on, so the two never hold at once.
             (closesOnTrailing ? closeOverIcon : closeTrailing).isActive = false
             (closesOnTrailing ? closeTrailing : closeOverIcon).isActive = true
-            updateAppearance()
+            updateState()
         }
     }
 
     private let icon = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
-    private var isHovered = false { didSet { updateAppearance() } }
+    private var isHovered = false { didSet { updateState() } }
     private var iconLeading: NSLayoutConstraint!
     private var iconCentered: NSLayoutConstraint!
     private var closeOverIcon: NSLayoutConstraint!
@@ -304,8 +304,6 @@ final class TabItemView: NSView {
         self.tab = tab
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 9
-        layer?.cornerCurve = .continuous
 
         icon.imageScaling = .scaleProportionallyDown
 
@@ -369,7 +367,7 @@ final class TabItemView: NSView {
         setAccessibilityValue(isSelected ? 1 : 0)
         icon.image = tab.icon
         icon.contentTintColor = .secondaryLabelColor
-        updateAppearance()
+        updateState()
     }
 
     override func accessibilityPerformPress() -> Bool {
@@ -386,10 +384,9 @@ final class TabItemView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { strip?.menu(for: self) }
 
-    private func updateAppearance() {
-        let fill: NSColor = isSelected ? .labelColor.withAlphaComponent(0.11)
-            : isHovered ? .labelColor.withAlphaComponent(0.05) : .clear
-        layer?.backgroundColor = fill.cgColor
+    /// What shows for the tab's state. The fill waits for `updateLayer`.
+    private func updateState() {
+        needsDisplay = true
         titleLabel.textColor = isSelected ? .labelColor : .secondaryLabelColor
         // A compact tab only offers to close when it is the selected one, so a
         // pass of the mouse along a crowded row can't hit a close button.
@@ -400,9 +397,18 @@ final class TabItemView: NSView {
         icon.isHidden = coversIcon
     }
 
+    /// The fill is resolved here, the one place the view's own appearance is
+    /// current. Resolved elsewhere, a dynamic color takes the system's
+    /// appearance rather than the theme's: a selected tab in a light theme on
+    /// a dark Mac turned white on white.
     override func updateLayer() {
         super.updateLayer()
-        updateAppearance() // layer colors don't follow light/dark changes on their own
+        guard let layer else { return }
+        layer.cornerRadius = 9
+        layer.cornerCurve = .continuous
+        let fill: NSColor = isSelected ? .labelColor.withAlphaComponent(0.11)
+            : isHovered ? .labelColor.withAlphaComponent(0.05) : .clear
+        layer.backgroundColor = fill.cgColor
     }
 
     override var wantsUpdateLayer: Bool { true }
