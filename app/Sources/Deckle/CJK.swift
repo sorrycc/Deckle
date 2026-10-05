@@ -86,4 +86,23 @@ enum CJK {
         }
         return kana > 0 && kana * 5 >= kana + han
     }
+
+    /// The same of a text storage's string, read a page at a time so the
+    /// note isn't copied to be counted.
+    static func isJapanese(_ text: NSString) -> Bool {
+        var kana = 0
+        var han = 0
+        var buffer = [unichar](repeating: 0, count: 4096)
+        var index = 0
+        let length = text.length
+        while index < length {
+            let count = min(buffer.count, length - index)
+            text.getCharacters(&buffer, range: NSRange(location: index, length: count))
+            for unit in buffer[..<count] {
+                if isKana(unit) { kana += 1 } else if isHan(unit) { han += 1 }
+            }
+            index += count
+        }
+        return kana > 0 && kana * 5 >= kana + han
+    }
 }

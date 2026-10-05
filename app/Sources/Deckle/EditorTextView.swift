@@ -5,6 +5,10 @@ import CDeckleCore
 final class EditorTextView: NSTextView {
     weak var editor: EditorView?
 
+    /// The text as the storage holds it. `string` hands Swift a copy of the
+    /// whole note, which is too much to ask for on every key and click.
+    private var live: NSString { textStorage?.mutableString ?? "" }
+
     /// A list item or quote up to the insertion point: indent and quote
     /// marks, then a list marker, a task box and the space before the text.
     private static let itemPattern = try! NSRegularExpression(
@@ -59,7 +63,7 @@ final class EditorTextView: NSTextView {
         let point = convert(event.locationInWindow, from: nil)
         if pastEnd > 0, point.y > frame.height - pastEnd + textContainerInset.height, event.clickCount == 1 {
             window?.makeFirstResponder(self)
-            setSelectedRange(NSRange(location: (string as NSString).length, length: 0))
+            setSelectedRange(NSRange(location: live.length, length: 0))
             return
         }
         clickDown(with: event)
@@ -79,6 +83,17 @@ final class EditorTextView: NSTextView {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// The note has an undo history of its own. When it has nothing to
+    /// undo, ⌘Z reaches the window's, which holds what was done to files:
+    /// a note moved to the Trash from the editor comes back.
+    @objc func undo(_ sender: Any?) {
+        if undoManager?.canUndo == true { undoManager?.undo() } else { window?.undoManager?.undo() }
+    }
+
+    @objc func redo(_ sender: Any?) {
+        if undoManager?.canRedo == true { undoManager?.redo() } else { window?.undoManager?.redo() }
     }
 
     /// The completion list takes the arrow keys, Return and Escape while open.
@@ -134,7 +149,7 @@ final class EditorTextView: NSTextView {
         guard let editor, editor.isMarkdown, selection.length == 0, !hasMarkedText(), !editor.isCode(at: selection.location) else {
             return super.insertNewline(sender)
         }
-        let string = self.string as NSString
+        let string = live
         let line = string.lineRange(for: selection)
         let head = string.substring(with: NSRange(location: line.location, length: selection.location - line.location))
         guard let item = item(in: head) else { return super.insertNewline(sender) }
@@ -164,7 +179,7 @@ final class EditorTextView: NSTextView {
 
     private func shiftItems(by direction: Int) -> Bool {
         guard let editor, editor.isMarkdown, !editor.isCode(at: selectedRange().location) else { return false }
-        let string = self.string as NSString
+        let string = live
         let selection = selectedRange()
         let lines = string.lineRange(for: selection)
         var pieces: [String] = []
@@ -275,7 +290,7 @@ final class EditorTextView: NSTextView {
     /// Wraps the selection in `mark`, or takes the marks away if it has them.
     private func toggleWrap(_ mark: String) {
         guard let editor, editor.isMarkdown else { return }
-        let string = self.string as NSString
+        let string = live
         let selection = selectedRange()
         let length = (mark as NSString).length
         let before = NSRange(location: selection.location - length, length: length)
@@ -302,7 +317,7 @@ final class EditorTextView: NSTextView {
     @objc func insertLink(_ sender: Any?) {
         guard let editor, editor.isMarkdown else { return }
         let selection = selectedRange()
-        let inner = (string as NSString).substring(with: selection)
+        let inner = live.substring(with: selection)
         insertText("[\(inner)](url)", replacementRange: selection)
         // The placeholder is selected, ready to be typed over.
         setSelectedRange(NSRange(location: selection.location + selection.length + 3, length: 3))
@@ -325,7 +340,7 @@ final class EditorTextView: NSTextView {
         guard let editor else { return }
         let edits = taskEdits(editor: editor)
         guard !edits.isEmpty else { return }
-        let string = self.string as NSString
+        let string = live
         let selection = selectedRange()
         let lines = string.lineRange(for: selection)
         let block = NSMutableString(string: string.substring(with: lines))
@@ -354,7 +369,7 @@ final class EditorTextView: NSTextView {
     /// What ⌘↩ would change in the selected lines, in order.
     private func taskEdits(editor: EditorView) -> [(range: NSRange, text: String)] {
         guard editor.isMarkdown, isEditable else { return [] }
-        let string = self.string as NSString
+        let string = live
         let lines = string.lineRange(for: selectedRange())
         guard lines.length > 0 else { return [] }
         let spans = editor.core.spans(in: lines)
@@ -389,7 +404,7 @@ final class EditorTextView: NSTextView {
     /// they all have one.
     @objc func toggleNumberedList(_ sender: Any?) {
         guard let editor, editor.isMarkdown, let regex = try? NSRegularExpression(pattern: Self.listPattern) else { return }
-        let string = self.string as NSString
+        let string = live
         let lines = string.lineRange(for: selectedRange())
         var texts: [(line: String, ending: String)] = []
         string.enumerateSubstrings(in: lines, options: .byLines) { line, range, enclosing, _ in
@@ -412,13 +427,21 @@ final class EditorTextView: NSTextView {
     /// selection is in.
     @objc func toggleCodeBlock(_ sender: Any?) {
         guard let editor, editor.isMarkdown else { return }
-        let string = self.string as NSString
+        let string = live
         let selection = selectedRange()
         if editor.isCode(at: selection.location), let block = editor.codeBlockElement(at: selection.location) {
-            // Out of the fences: the lines between them stay.
-            let lines = string.substring(with: block).components(separatedBy: "\n")
-            guard lines.count >= 2 else { return }
-            let inner = lines.dropFirst().dropLast().joined(separator: "\n")
+            // Out of the fences: the lines between them stay. A block with
+            // no fence to take away, one made by indenting, is left alone,
+            // and one never closed loses only the fence it has.
+            func fence(_ flag: Int, onLineAt index: Int) -> Bool {
+                let line = string.paragraphRange(for: NSRange(location: index, length: 0))
+                return editor.core.spans(in: line).contains { $0.kindValue == DeckleCodeBlock && $0.flags & UInt16(flag) != 0 }
+            }
+            var lines = string.substring(with: block).components(separatedBy: "\n")
+            guard lines.count >= 2, fence(DeckleCodeFenceOpen, onLineAt: block.location) else { return }
+            lines.removeFirst()
+            if fence(DeckleCodeFenceClose, onLineAt: max(block.location, block.upperBound - 1)) { lines.removeLast() }
+            let inner = lines.joined(separator: "\n")
             insertText(inner, replacementRange: block)
             setSelectedRange(NSRange(location: block.location, length: (inner as NSString).length))
             return
@@ -440,7 +463,7 @@ final class EditorTextView: NSTextView {
     /// their start. With `toggles`, lines that all have it lose it.
     private func setLinePrefix(_ prefix: String, replacing pattern: String, toggles: Bool = false) {
         guard let editor, editor.isMarkdown, let regex = try? NSRegularExpression(pattern: pattern) else { return }
-        let string = self.string as NSString
+        let string = live
         let lines = string.lineRange(for: selectedRange())
         var texts: [(line: String, ending: String)] = []
         string.enumerateSubstrings(in: lines, options: .byLines) { line, range, enclosing, _ in
@@ -460,6 +483,14 @@ final class EditorTextView: NSTextView {
 
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(undo(_:)):
+            let manager = undoManager?.canUndo == true ? undoManager : window?.undoManager
+            item.title = manager?.undoMenuItemTitle ?? "Undo"
+            return manager?.canUndo ?? false
+        case #selector(redo(_:)):
+            let manager = undoManager?.canRedo == true ? undoManager : window?.undoManager
+            item.title = manager?.redoMenuItemTitle ?? "Redo"
+            return manager?.canRedo ?? false
         case #selector(toggleTaskDone(_:)):
             guard let editor else { return false }
             return !taskEdits(editor: editor).isEmpty
@@ -481,7 +512,7 @@ final class EditorTextView: NSTextView {
     /// Whether the style a Format command toggles is on at the selection.
     private func isCurrent(_ action: Selector?, level: Int, editor: EditorView) -> Bool {
         let selection = selectedRange()
-        let string = self.string as NSString
+        let string = live
         guard string.length > 0 else { return action == #selector(setHeadingLevel(_:)) && level == 0 }
         let lines = string.paragraphRange(for: selection)
         let spans = editor.core.spans(in: lines)

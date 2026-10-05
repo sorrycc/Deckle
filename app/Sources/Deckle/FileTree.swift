@@ -8,6 +8,8 @@ protocol FileTreeDelegate: AnyObject {
     func fileTreeFocusEditor(_ tree: FileTreeController)
     func fileTree(_ tree: FileTreeController, showFolder url: URL)
     func fileTree(_ tree: FileTreeController, moved old: URL, to new: URL)
+    /// `url` is about to go to the Trash; false keeps it.
+    func fileTree(_ tree: FileTreeController, shouldRemove url: URL) -> Bool
     func fileTree(_ tree: FileTreeController, removed url: URL)
     func fileTreeSwitchWorkspace(_ tree: FileTreeController, to url: URL?)
 }
@@ -41,20 +43,26 @@ final class FileNode: NSObject {
         let keys: [URLResourceKey] = [.isDirectoryKey]
         let urls = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
         let existing = Dictionary(uniqueKeysWithValues: (children ?? []).map { ($0.url.lastPathComponent, $0) })
-        var nodes: [FileNode] = []
-        for child in urls where child.lastPathComponent != "node_modules" {
+        // Each entry with its name, read once: a folder of thousands of
+        // notes is sorted by them, and a URL makes its name anew each time.
+        var entries: [(name: String, node: FileNode)] = []
+        entries.reserveCapacity(urls.count)
+        for child in urls {
+            let name = child.lastPathComponent
+            if name == "node_modules" { continue }
             let isDirectory = (try? child.resourceValues(forKeys: Set(keys)))?.isDirectory ?? false
-            if let node = existing[child.lastPathComponent], node.isDirectory == isDirectory {
-                nodes.append(node)
+            if let node = existing[name], node.isDirectory == isDirectory {
+                entries.append((name, node))
             } else {
-                nodes.append(FileNode(url: url.appendingPathComponent(child.lastPathComponent, isDirectory: isDirectory), isDirectory: isDirectory, parent: self))
+                entries.append((name, FileNode(url: url.appendingPathComponent(name, isDirectory: isDirectory), isDirectory: isDirectory, parent: self)))
             }
         }
         // Folders first, then names as Finder orders them.
-        nodes.sort {
-            $0.isDirectory != $1.isDirectory
-                ? $0.isDirectory : $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
+        entries.sort {
+            $0.node.isDirectory != $1.node.isDirectory
+                ? $0.node.isDirectory : $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
+        let nodes = entries.map(\.node)
         children = nodes
     }
 }
@@ -74,6 +82,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     /// Loaded folders by path, to find the node a change belongs to.
     private var folders: [String: FileNode] = [:]
     private var isSelectingProgrammatically = false
+    /// The rows at the top level, kept between the outline's questions: it
+    /// asks for each child in turn, and a workspace of thousands of notes
+    /// would build the list anew for every one.
+    private var topRows: [FileNode]?
 
     private(set) var starred: [URL] = []
 
@@ -212,6 +224,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
 
     private func rebuildStarred() {
         starredGroup.children = starred.map { FileNode(url: $0, isDirectory: false, parent: starredGroup) }
+        topRows = nil
     }
 
     private func saveStarred() {
@@ -263,6 +276,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         guard let node = folders[url.path], node.children != nil else { return }
         let selected = (outline.item(atRow: outline.selectedRow) as? FileNode)?.url
         node.reload()
+        topRows = nil
         // Folders that went away are no longer loaded.
         folders = folders.filter { FileManager.default.fileExists(atPath: $0.key) }
         isSelectingProgrammatically = true
@@ -298,7 +312,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     }
 
     @objc private func themeChanged(_ note: Notification) {
-        outline.enumerateAvailableRowViews { row, _ in row.needsDisplay = true }
+        outline.enumerateAvailableRowViews { row, _ in
+            row.needsDisplay = true
+            (row as? ThemedRowView)?.tintCells()
+        }
     }
 
     private func selectRow(of node: FileNode) {
@@ -314,7 +331,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
 
     private func children(of item: Any?) -> [FileNode] {
         guard let node = item as? FileNode else {
-            return [workspaceNode] + (starred.isEmpty ? [] : [starredGroup]) + (root.children ?? [])
+            if let topRows { return topRows }
+            let rows = [workspaceNode] + (starred.isEmpty ? [] : [starredGroup]) + (root.children ?? [])
+            topRows = rows
+            return rows
         }
         if node.isWorkspace { return [] }
         if node.children == nil {
@@ -458,10 +478,19 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
             folderChanged(source.deletingLastPathComponent())
             return false
         }
-        if let index = starred.firstIndex(where: { $0.path == source.path }) {
-            starred[index] = target
-            saveStarred()
+        // Stars follow the file, or the folder it is in.
+        var restarred = false
+        for index in starred.indices {
+            let path = starred[index].path
+            if path == source.path {
+                starred[index] = target
+                restarred = true
+            } else if path.hasPrefix(source.path + "/") {
+                starred[index] = target.appendingPathComponent(String(path.dropFirst(source.path.count + 1)))
+                restarred = true
+            }
         }
+        if restarred { saveStarred() }
         delegate?.fileTree(self, moved: source, to: target)
         folderChanged(source.deletingLastPathComponent())
         folderChanged(target.deletingLastPathComponent())
@@ -518,9 +547,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
         }
     }
 
-    /// Creates an empty note in `folder` and opens it.
+    /// Creates a note in `folder` and opens it in the current tab, unless
+    /// `opens` is false and the caller shows it where it wants.
     @discardableResult
-    func createNote(in folder: URL, named name: String = "Untitled", text: String = "") -> URL? {
+    func createNote(in folder: URL, named name: String = "Untitled", text: String = "", opens: Bool = true) -> URL? {
         let url = Self.freeName(name, extension: "md", in: folder)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -530,8 +560,10 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
             return nil
         }
         folderChanged(folder)
-        delegate?.fileTree(self, open: url, inNewTab: false, focus: true)
-        select(url)
+        if opens {
+            delegate?.fileTree(self, open: url, inNewTab: false, focus: true)
+            select(url)
+        }
         return url
     }
 
@@ -591,6 +623,7 @@ final class FileTreeController: NSViewController, NSOutlineViewDataSource, NSOut
     /// Moves a file or folder to the Trash, where it can be put back from,
     /// and Edit > Undo brings it back.
     func trash(_ url: URL) {
+        guard delegate?.fileTree(self, shouldRemove: url) ?? true else { return }
         var trashed: NSURL?
         do {
             try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
@@ -713,5 +746,27 @@ final class ThemedRowView: NSTableRowView {
     override var isEmphasized: Bool {
         get { isThemed ? false : super.isEmphasized }
         set { super.isEmphasized = newValue }
+    }
+
+    override var isSelected: Bool {
+        didSet { tintCells() }
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        tintCells()
+    }
+
+    /// Under a theme the selected row's icon takes the accent and its name
+    /// stays the text's color: the system would turn both its own blue,
+    /// which sits oddly on a plate of another accent.
+    func tintCells() {
+        let theme = Theme.current
+        let themed = theme.appearance != nil
+        // A group's title has no icon, and keeps the system's look.
+        for case let cell as NSTableCellView in subviews where cell.imageView != nil {
+            cell.imageView?.contentTintColor = themed ? (isSelected ? theme.accent : theme.secondary) : nil
+            cell.textField?.textColor = themed ? theme.text : .labelColor
+        }
     }
 }

@@ -649,11 +649,19 @@ impl Workspace {
     pub fn list_notes(&self, dir: &str, by_title: bool) -> u32 {
         let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| PathBuf::from(dir));
         let index = self.shared.index.read().unwrap();
-        let mut notes: Vec<(&PathBuf, &Note)> = index.notes.iter().filter(|(p, _)| p.starts_with(&dir)).collect();
+        // Paths are compared as bytes, not component by component: the list
+        // is made again after every save, and a workspace of tens of
+        // thousands of notes is filtered and sorted each time.
+        let prefix = dir.as_os_str().as_encoded_bytes();
+        let under = |p: &PathBuf| {
+            let bytes = p.as_os_str().as_encoded_bytes();
+            bytes.len() > prefix.len() && bytes.starts_with(prefix) && (prefix.ends_with(b"/") || bytes[prefix.len()] == b'/')
+        };
+        let mut notes: Vec<(&PathBuf, &Note)> = index.notes.iter().filter(|(p, _)| under(p)).collect();
         if by_title {
-            notes.sort_by(|a, b| natural_cmp(&a.1.title, &b.1.title).then(a.0.cmp(b.0)));
+            notes.sort_unstable_by(|a, b| natural_cmp(&a.1.title, &b.1.title).then_with(|| a.0.as_os_str().cmp(b.0.as_os_str())));
         } else {
-            notes.sort_by(|a, b| b.1.modified.cmp(&a.1.modified).then(a.0.cmp(b.0)));
+            notes.sort_unstable_by(|a, b| b.1.modified.cmp(&a.1.modified).then_with(|| a.0.as_os_str().cmp(b.0.as_os_str())));
         }
         let listed: Vec<PathBuf> = notes.into_iter().map(|(p, _)| p.clone()).collect();
         let count = listed.len() as u32;

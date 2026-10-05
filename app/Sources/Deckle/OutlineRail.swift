@@ -14,6 +14,8 @@ final class OutlineRail: NSView {
     /// The list as a card, made when the rail first opens: a glass view is
     /// dear, and most notes are read without one.
     private var card: NSGlassEffectView?
+    /// The card as tall as its list; the cap on the rail's height wins over it.
+    private var cardHeight: NSLayoutConstraint?
     private let list = NSStackView()
     /// The headings changed since the list was last built.
     private var listIsStale = true
@@ -61,7 +63,13 @@ final class OutlineRail: NSView {
         card.isHidden = true
         card.translatesAutoresizingMaskIntoConstraints = false
         addSubview(card)
+        // A scroll view has no size of its own, so the card is told the
+        // list's height, below the cap so a long list scrolls instead.
+        let height = card.heightAnchor.constraint(equalToConstant: list.fittingSize.height)
+        height.priority = .defaultHigh
+        cardHeight = height
         NSLayoutConstraint.activate([
+            height,
             list.widthAnchor.constraint(equalTo: scroll.widthAnchor),
             card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             card.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -149,6 +157,7 @@ final class OutlineRail: NSView {
             button.trailingAnchor.constraint(lessThanOrEqualTo: list.trailingAnchor, constant: -8).isActive = true
         }
         updateList()
+        cardHeight?.constant = list.fittingSize.height
     }
 
     private func updateList() {

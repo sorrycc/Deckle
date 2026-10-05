@@ -6,7 +6,7 @@
 
 <p align="center">A fast, native Markdown editor for macOS.</p>
 
-<!-- <p align="center"><img src="docs/screenshot.png" alt="Deckle screenshot"></p> -->
+<p align="center"><img src="docs/screenshot.png" width="900" alt="Deckle with a workspace open: the file tree, the note list and a note with a table, tasks and a callout"></p>
 
 Deckle pairs an AppKit interface with a Rust core. Notes are plain `.md` files in a folder you choose.
 

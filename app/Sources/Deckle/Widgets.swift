@@ -140,6 +140,8 @@ final class WidgetStore: WidgetSource {
     /// The last image drawn for each piece of math or diagram, shown while a
     /// new one, for another width or theme, renders.
     private var lastRendered: [String: NSImage] = [:]
+    /// The keys of `lastRendered`, the one used longest ago first.
+    private var lastRenderedOrder: [String] = []
     private var tables: [String: TableWidget] = [:]
     private var rendered: [String: NSImage] = [:]
     private var rendering: Set<String> = []
@@ -177,7 +179,7 @@ final class WidgetStore: WidgetSource {
             switch span.kindValue {
             case DeckleImage where span.flags & 1 != 0:
                 guard let destination = spans.first(where: { $0.kindValue == DeckleImageDest && $0.element == span.element }) else { continue }
-                let source = (editor.storage.string as NSString).substring(with: destination.range)
+                let source = editor.storage.mutableString.substring(with: destination.range)
                 let widget: Widget
                 let available = editor.columnWidth - 2 * style.firstLineHeadIndent
                 if let image = image(for: source, line: range) {
@@ -205,16 +207,16 @@ final class WidgetStore: WidgetSource {
                 style.paragraphSpacingBefore += widget.height + 4
                 return
             case DeckleMathBlock where span.flags & 1 != 0:
-                rendered(.math, source: Self.mathSource(of: span.element, in: editor), span: span, line: range, content: content, style: style, decoration: &decoration, styler: styler, hide: hide)
+                rendered(.math, source: { Self.mathSource(of: span.element, in: editor) }, span: span, line: range, content: content, style: style, decoration: &decoration, styler: styler, hide: hide)
                 return
             case DeckleCodeBlock where span.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) != 0:
                 let kind: Renderer.Kind = span.flags & UInt16(DeckleCodeDiagram) != 0 ? .mermaid : .math
-                rendered(kind, source: Self.fenceSource(of: span.element, in: editor), span: span, line: range, content: content, style: style, decoration: &decoration, styler: styler, hide: hide)
+                rendered(kind, source: { Self.fenceSource(of: span.element, in: editor) }, span: span, line: range, content: content, style: style, decoration: &decoration, styler: styler, hide: hide)
                 return
             case DeckleInlineMath where !styler.isRevealed(span.element):
                 let r = local(span.range)
                 guard r.length > 2 else { continue }
-                let source = (editor.storage.string as NSString).substring(with: NSRange(location: span.range.location + 1, length: span.range.length - 2))
+                let source = editor.storage.mutableString.substring(with: NSRange(location: span.range.location + 1, length: span.range.length - 2))
                 guard let image = renderedImage(.inline, source: source, element: span.element, styler: styler) else { continue }
                 // Shown no taller than the line, the text's size at most.
                 let scale = min(1, styler.fonts.size * 1.7 / max(1, image.size.height))
@@ -233,9 +235,10 @@ final class WidgetStore: WidgetSource {
     // MARK: Math and diagrams
 
     /// A block of math or a diagram: drawn in place of its source, or above
-    /// it while the selection is in it.
+    /// it while the selection is in it. The source is read for the block's
+    /// first line only, which draws it: the other lines just fold away.
     private func rendered(
-        _ kind: Renderer.Kind, source: String, span: DeckleSpan, line: NSRange, content: NSRange, style: NSMutableParagraphStyle,
+        _ kind: Renderer.Kind, source: () -> String, span: DeckleSpan, line: NSRange, content: NSRange, style: NSMutableParagraphStyle,
         decoration: inout LineDecoration, styler: Styler, hide: (NSRange) -> Void
     ) {
         let revealed = styler.isRevealed(span.element)
@@ -245,6 +248,7 @@ final class WidgetStore: WidgetSource {
             decoration.block = .none
         }
         guard span.start == span.elem_start else { return }
+        let source = source()
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             if !revealed { decoration.lineHeight = nil }
             return
@@ -259,6 +263,11 @@ final class WidgetStore: WidgetSource {
         } else {
             image = lastRendered[key]
         }
+        // Every edit of a block leaves a picture here. The ones used
+        // longest ago go first, so the blocks still in the note keep theirs.
+        lastRenderedOrder.removeAll { $0 == key }
+        lastRenderedOrder.append(key)
+        if lastRenderedOrder.count > 200 { lastRendered[lastRenderedOrder.removeFirst()] = nil }
         guard let image else {
             if !revealed { decoration.lineHeight = nil }
             return
@@ -291,14 +300,14 @@ final class WidgetStore: WidgetSource {
         return Renderer.shared.image(
             kind, source: source, dark: dark, color: color, background: background, accent: accent, size: size,
             width: editor.columnWidth - 8, owner: "\(ObjectIdentifier(editor).hashValue)|\(element.location)|\(kind.rawValue)"
-        ) { [weak editor] _ in
-            editor?.restyle(element)
+        ) { [weak editor, generation = editor.generation] _ in
+            editor?.widgetArrived(for: element, askedAt: generation)
         }
     }
 
     /// The math between a block's `$$` marks.
     static func mathSource(of element: NSRange, in editor: EditorView) -> String {
-        var text = (editor.storage.string as NSString).substring(with: element).trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = editor.storage.mutableString.substring(with: element).trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("$$") { text.removeFirst(2) }
         if text.hasSuffix("$$") { text.removeLast(2) }
         return text
@@ -306,7 +315,7 @@ final class WidgetStore: WidgetSource {
 
     /// The lines between a code block's fences.
     static func fenceSource(of element: NSRange, in editor: EditorView) -> String {
-        var lines = (editor.storage.string as NSString).substring(with: element).components(separatedBy: "\n")
+        var lines = editor.storage.mutableString.substring(with: element).components(separatedBy: "\n")
         if !lines.isEmpty { lines.removeFirst() }
         if let last = lines.last?.trimmingCharacters(in: .whitespaces), last.hasPrefix("```") || last.hasPrefix("~~~") { lines.removeLast() }
         return lines.joined(separator: "\n")
@@ -326,15 +335,21 @@ final class WidgetStore: WidgetSource {
             let path = source.removingPercentEncoding ?? source
             key = URL(fileURLWithPath: path, relativeTo: editor.url.deletingLastPathComponent()).standardizedFileURL.path
         }
-        if let image = Self.images.object(forKey: key as NSString) { return image }
+        // A file is kept by when it was written too, so a picture exported
+        // again under the same name is read again.
+        let stamp = remote ? 0 : Files.modificationDate(URL(fileURLWithPath: key))?.timeIntervalSinceReferenceDate ?? 0
+        let cacheKey = "\(key)|\(stamp)" as NSString
+        if let image = Self.images.object(forKey: cacheKey) { return image }
         guard !loading.contains(key) else { return nil }
         loading.insert(key)
+        let generation = editor.generation
         let done: @MainActor (NSImage?) -> Void = { [weak self] image in
             guard let self else { return }
             self.loading.remove(key)
             guard let image else { return }
-            Self.images.setObject(image, forKey: key as NSString, cost: Int(image.size.width * image.size.height) * 4)
-            self.editor?.restyle(line)
+            Self.images.setObject(image, forKey: cacheKey, cost: Int(image.size.width * image.size.height) * 4)
+            self.imageSizes[key] = nil
+            self.editor?.widgetArrived(for: line, askedAt: generation)
         }
         if remote {
             guard let url = URL(string: key) else { return nil }
@@ -403,7 +418,7 @@ final class WidgetStore: WidgetSource {
 
     private func table(_ element: NSRange, width: CGFloat, styler: Styler) -> TableWidget {
         guard let editor else { return TableWidget(rows: [], maxWidth: width) }
-        let string = editor.storage.string as NSString
+        let string = editor.storage.mutableString
         let source = string.substring(with: element)
         let key = "\(source)|\(width)"
         if let cached = tables[key] { return cached }
@@ -411,6 +426,7 @@ final class WidgetStore: WidgetSource {
         var row: [TableWidget.Cell] = []
         var line = -1
         let body = styler.fonts.body
+        let bold = Fonts.with(body, trait: .bold)
         for span in editor.core.spans(in: string.paragraphRange(for: element)) where span.kindValue == DeckleTableCell {
             let lineStart = string.lineRange(for: NSRange(location: Int(span.start), length: 0)).location
             if lineStart != line {
@@ -427,7 +443,7 @@ final class WidgetStore: WidgetSource {
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = alignment
             let source = string.substring(with: span.range)
-            let cell = Self.inlineText(source, font: header ? Fonts.with(body, trait: .bold) : body, styler: styler)
+            let cell = Self.inlineText(source, font: header ? bold : body, styler: styler)
             styler.localize(cell, language: styler.cjkLanguage(of: source))
             cell.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: cell.length))
             row.append(TableWidget.Cell(text: cell, alignment: alignment))
@@ -438,26 +454,39 @@ final class WidgetStore: WidgetSource {
         return widget
     }
 
+    private enum Inline {
+        case bold, italic, code, strike, link
+    }
+
+    /// The inline syntax a cell's text can hold, compiled once.
+    private static let inlineRules: [(NSRegularExpression, Inline)] = [
+        (#"\*\*(.+?)\*\*|__(.+?)__"#, .bold),
+        (#"(?<![*\w])\*(?!\*)(.+?)\*|(?<!\w)_(.+?)_"#, .italic),
+        (#"`([^`]+)`"#, .code),
+        (#"~~(.+?)~~"#, .strike),
+        (#"\[\[(?:[^\]|]*\|)?([^\]]+)\]\]"#, .link),
+        (#"\[([^\]]+)\]\([^)]*\)"#, .link),
+    ].compactMap { pattern, kind in (try? NSRegularExpression(pattern: pattern)).map { ($0, kind) } }
+
     /// The text of a cell with its inline syntax taken out and its style kept:
     /// bold, italic, code and links.
     static func inlineText(_ source: String, font: NSFont, styler: Styler) -> NSMutableAttributedString {
         let theme = styler.theme
         let result = NSMutableAttributedString(string: source, attributes: [.font: font, .foregroundColor: theme.text])
-        let rules: [(String, (NSMutableAttributedString, NSRange) -> Void)] = [
-            (#"\*\*(.+?)\*\*|__(.+?)__"#, { s, r in s.addAttribute(.font, value: Fonts.with(font, trait: .bold), range: r) }),
-            (#"(?<![*\w])\*(?!\*)(.+?)\*|(?<!\w)_(.+?)_"#, { s, r in s.addAttribute(.font, value: Fonts.with(font, trait: .italic), range: r) }),
-            (#"`([^`]+)`"#, { s, r in s.addAttributes([.font: styler.fonts.mono(ofSize: font.pointSize * 0.9), .foregroundColor: theme.codeText], range: r) }),
-            (#"~~(.+?)~~"#, { s, r in s.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r) }),
-            (#"\[\[(?:[^\]|]*\|)?([^\]]+)\]\]"#, { s, r in s.addAttribute(.foregroundColor, value: theme.link, range: r) }),
-            (#"\[([^\]]+)\]\([^)]*\)"#, { s, r in s.addAttribute(.foregroundColor, value: theme.link, range: r) }),
-        ]
-        for (pattern, apply) in rules {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+        for (regex, kind) in inlineRules {
             // From the end, so earlier ranges hold as the syntax comes out.
             for match in regex.matches(in: result.string, range: NSRange(location: 0, length: result.length)).reversed() {
                 let group = (1..<match.numberOfRanges).map { match.range(at: $0) }.first { $0.location != NSNotFound } ?? match.range
                 let inner = result.attributedSubstring(from: group).mutableCopy() as! NSMutableAttributedString
-                apply(inner, NSRange(location: 0, length: inner.length))
+                let all = NSRange(location: 0, length: inner.length)
+                switch kind {
+                case .bold: inner.addAttribute(.font, value: Fonts.with(font, trait: .bold), range: all)
+                case .italic: inner.addAttribute(.font, value: Fonts.with(font, trait: .italic), range: all)
+                case .code:
+                    inner.addAttributes([.font: styler.fonts.mono(ofSize: font.pointSize * 0.9), .foregroundColor: theme.codeText], range: all)
+                case .strike: inner.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: all)
+                case .link: inner.addAttribute(.foregroundColor, value: theme.link, range: all)
+                }
                 result.replaceCharacters(in: match.range, with: inner)
             }
         }

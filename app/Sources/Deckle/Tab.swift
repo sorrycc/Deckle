@@ -79,7 +79,7 @@ final class Tab {
             if let selection { editor?.reveal(selection) }
             return
         }
-        leave()
+        guard leave() else { return }
         entries.removeSubrange((index + 1)...)
         entries.append(Entry(url: url, selection: selection ?? NSRange(location: 0, length: 0), scroll: scroll))
         index = entries.count - 1
@@ -87,29 +87,35 @@ final class Tab {
     }
 
     func goBack() {
-        guard canGoBack else { return }
-        leave()
+        guard canGoBack, leave() else { return }
         index -= 1
         load(select: true)
     }
 
     func goForward() {
-        guard canGoForward else { return }
-        leave()
+        guard canGoForward, leave() else { return }
         index += 1
         load(select: true)
     }
 
-    /// Saves the file shown and remembers where its editor was.
-    private func leave() {
-        guard let editor = loadedEditor, entries.indices.contains(index) else { return }
-        editor.save()
+    /// Saves the file shown and remembers where its editor was. Returns
+    /// false when the note has edits that couldn't be saved and the user
+    /// would rather stay with it.
+    private func leave() -> Bool {
+        guard let editor = loadedEditor, entries.indices.contains(index) else { return true }
+        guard editor.saveBeforeLeaving() else { return false }
         entries[index].selection = editor.textView.selectedRange()
         entries[index].scroll = editor.scrollView.contentView.bounds.origin.y
+        return true
     }
 
-    /// Saves the file shown, before the tab closes or the app quits.
+    /// Saves the file shown.
     func save() { loadedEditor?.save() }
+
+    /// Saves the file shown before the tab closes or the app quits. Returns
+    /// false to keep the tab, when its edits couldn't be saved and the user
+    /// chose not to lose them.
+    func canClose() -> Bool { loadedEditor?.saveBeforeLeaving() ?? true }
 
     /// The file moved or was renamed.
     func fileMoved(from old: URL, to new: URL) {
@@ -147,8 +153,8 @@ final class Tab {
         let entry = entries[index]
         if Files.isImage(url) {
             loadedView = ImagePreview(url: url)
-        } else if let text = Files.readText(url) {
-            let editor = EditorView(url: url, text: text)
+        } else if let (text, encoding) = Files.read(url) {
+            let editor = EditorView(url: url, text: text, encoding: encoding)
             editor.delegate = editorDelegate
             // A note that ships with the app, such as the help, is read-only.
             if url.path.hasPrefix(Bundle.main.bundlePath) { editor.textView.isEditable = false }

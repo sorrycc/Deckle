@@ -92,7 +92,7 @@ struct Theme: Sendable {
     static func palette(
         _ id: String, _ name: String, dark: Bool, background: UInt32, text: UInt32, secondary: UInt32, syntax: UInt32,
         accent: UInt32, heading: UInt32, code: UInt32, keyword: UInt32, string: UInt32, comment: UInt32, number: UInt32,
-        type: UInt32, function: UInt32, property: UInt32, highlight: UInt32
+        type: UInt32, function: UInt32, property: UInt32, highlight: UInt32, callouts: [UInt32]? = nil
     ) -> Theme {
         let ink = NSColor(hex: text)
         return Theme(
@@ -107,8 +107,8 @@ struct Theme: Sendable {
             property: NSColor(hex: property),
             selection: NSColor(hex: accent, alpha: dark ? 0.35 : 0.25),
             // Callouts in the palette's own blue, green, purple, orange and
-            // red, which its code colors already are.
-            callouts: [NSColor(hex: function), NSColor(hex: string), NSColor(hex: keyword), NSColor(hex: number), NSColor(hex: property)])
+            // red: its code colors where they are those, else the ones given.
+            callouts: (callouts ?? [function, string, keyword, number, property]).map { NSColor(hex: $0) })
     }
 
     static let all: [Theme] = [
@@ -121,12 +121,14 @@ struct Theme: Sendable {
             "github-light", "GitHub Light", dark: false, background: 0xFFFFFF, text: 0x1F2328, secondary: 0x59636E,
             syntax: 0xA5ADB7, accent: 0x0969DA, heading: 0x1F2328, code: 0xCF222E, keyword: 0xCF222E, string: 0x0A3069,
             comment: 0x6E7781, number: 0x0550AE, type: 0x953800, function: 0x8250DF, property: 0x116329,
-            highlight: 0xFFF1A8),
+            highlight: 0xFFF1A8,
+            callouts: [0x0969DA, 0x1A7F37, 0x8250DF, 0x9A6700, 0xCF222E]),
         palette(
             "solarized-light", "Solarized Light", dark: false, background: 0xFDF6E3, text: 0x586E75, secondary: 0x839496,
             syntax: 0xB8C2C2, accent: 0x268BD2, heading: 0x073642, code: 0xCB4B16, keyword: 0x859900, string: 0x2AA198,
             comment: 0x93A1A1, number: 0xD33682, type: 0xB58900, function: 0x268BD2, property: 0xCB4B16,
-            highlight: 0xEEE1A8),
+            highlight: 0xEEE1A8,
+            callouts: [0x268BD2, 0x859900, 0x6C71C4, 0xB58900, 0xDC322F]),
         palette(
             "one-dark", "One Dark", dark: true, background: 0x282C34, text: 0xABB2BF, secondary: 0x8289A0, syntax: 0x5C6370,
             accent: 0x61AFEF, heading: 0xE06C75, code: 0xE5C07B, keyword: 0xC678DD, string: 0x98C379, comment: 0x5C6370,
@@ -134,25 +136,30 @@ struct Theme: Sendable {
         palette(
             "nord", "Nord", dark: true, background: 0x2E3440, text: 0xD8DEE9, secondary: 0x9AA5B8, syntax: 0x616E88,
             accent: 0x88C0D0, heading: 0x8FBCBB, code: 0xEBCB8B, keyword: 0x81A1C1, string: 0xA3BE8C, comment: 0x616E88,
-            number: 0xB48EAD, type: 0x8FBCBB, function: 0x88C0D0, property: 0xD08770, highlight: 0xEBCB8B),
+            number: 0xB48EAD, type: 0x8FBCBB, function: 0x88C0D0, property: 0xD08770, highlight: 0xEBCB8B,
+            callouts: [0x88C0D0, 0xA3BE8C, 0xB48EAD, 0xEBCB8B, 0xBF616A]),
         palette(
             "tokyo-night", "Tokyo Night", dark: true, background: 0x1A1B26, text: 0xC0CAF5, secondary: 0x9AA5CE,
             syntax: 0x565F89, accent: 0x7AA2F7, heading: 0xBB9AF7, code: 0xFF9E64, keyword: 0xBB9AF7, string: 0x9ECE6A,
             comment: 0x565F89, number: 0xFF9E64, type: 0x2AC3DE, function: 0x7AA2F7, property: 0x73DACA,
-            highlight: 0xE0AF68),
+            highlight: 0xE0AF68,
+            callouts: [0x7AA2F7, 0x9ECE6A, 0xBB9AF7, 0xE0AF68, 0xF7768E]),
         palette(
             "rose-pine", "Rosé Pine", dark: true, background: 0x191724, text: 0xE0DEF4, secondary: 0x908CAA, syntax: 0x6E6A86,
             accent: 0xC4A7E7, heading: 0xEBBCBA, code: 0xF6C177, keyword: 0x31748F, string: 0xF6C177, comment: 0x6E6A86,
-            number: 0xEB6F92, type: 0x9CCFD8, function: 0xEBBCBA, property: 0xC4A7E7, highlight: 0xF6C177),
+            number: 0xEB6F92, type: 0x9CCFD8, function: 0xEBBCBA, property: 0xC4A7E7, highlight: 0xF6C177,
+            callouts: [0x9CCFD8, 0x3E8FB0, 0xC4A7E7, 0xF6C177, 0xEB6F92]),
         palette(
             "dracula", "Dracula", dark: true, background: 0x282A36, text: 0xF8F8F2, secondary: 0xB4B7C9, syntax: 0x6272A4,
             accent: 0x8BE9FD, heading: 0xBD93F9, code: 0xFFB86C, keyword: 0xFF79C6, string: 0xF1FA8C, comment: 0x6272A4,
-            number: 0xBD93F9, type: 0x8BE9FD, function: 0x50FA7B, property: 0xFFB86C, highlight: 0xF1FA8C),
+            number: 0xBD93F9, type: 0x8BE9FD, function: 0x50FA7B, property: 0xFFB86C, highlight: 0xF1FA8C,
+            callouts: [0x8BE9FD, 0x50FA7B, 0xBD93F9, 0xFFB86C, 0xFF5555]),
         palette(
             "gruvbox-dark", "Gruvbox Dark", dark: true, background: 0x282828, text: 0xEBDBB2, secondary: 0xBDAE93,
             syntax: 0x7C6F64, accent: 0x83A598, heading: 0xFABD2F, code: 0xFE8019, keyword: 0xFB4934, string: 0xB8BB26,
             comment: 0x928374, number: 0xD3869B, type: 0x8EC07C, function: 0x83A598, property: 0xFE8019,
-            highlight: 0xFABD2F),
+            highlight: 0xFABD2F,
+            callouts: [0x83A598, 0xB8BB26, 0xD3869B, 0xFABD2F, 0xFB4934]),
     ]
 
     /// The color of a callout by kind: note, tip, important, warning, caution.

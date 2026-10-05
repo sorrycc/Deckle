@@ -7,7 +7,7 @@ enum MainMenu {
         let main = NSMenu()
 
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About Deckle", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "About Deckle", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())
@@ -47,8 +47,8 @@ enum MainMenu {
         add(file, titled: "File", to: main)
 
         let edit = NSMenu()
-        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(withTitle: "Undo", action: #selector(EditorTextView.undo(_:)), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: #selector(EditorTextView.redo(_:)), keyEquivalent: "Z")
         edit.addItem(.separator())
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
@@ -175,7 +175,59 @@ enum MainMenu {
         help.addItem(withTitle: "Markdown Reference", action: #selector(AppDelegate.showMarkdownReference(_:)), keyEquivalent: "")
         add(help, titled: "Help", to: main)
         NSApp.helpMenu = help
+        addSymbols(to: main)
         return main
+    }
+
+    /// The symbols of Deckle's own commands, by title. The system gives the
+    /// standard ones theirs, Copy and Print among them; without these the
+    /// app's own would sit bare between them, out of line.
+    private static let symbols: [String: String] = [
+        "About Deckle": "info.circle",
+        "Settings…": "gear",
+        "New Note": "square.and.pencil",
+        "New Tab": "plus.square.on.square",
+        "Open…": "folder",
+        "Open Recent": "clock",
+        "Quick Open…": "doc.text.magnifyingglass",
+        "Close Tab": "xmark.square",
+        "Reopen Closed Tab": "arrow.uturn.backward.square",
+        "Reveal in Finder": "finder",
+        "Move to Trash": "trash",
+        "Export as PDF…": "arrow.up.doc",
+        "Substitutions": "textformat.abc.dottedunderline",
+        "Highlight": "highlighter",
+        "Code": "chevron.left.forwardslash.chevron.right",
+        "Link": "link",
+        "Bulleted List": "list.bullet",
+        "Numbered List": "list.number",
+        "Task List": "checklist",
+        "Toggle Done": "checkmark.circle",
+        "Quote": "text.quote",
+        "Code Block": "curlybraces",
+        "Indent": "increase.indent",
+        "Outdent": "decrease.indent",
+        "Hide Note List": "list.bullet.rectangle",
+        "Search Notes…": "magnifyingglass",
+        "Commands…": "command",
+        "Go to Heading…": "list.bullet.indent",
+        "Show Backlinks": "arrow.turn.up.left",
+        "Back": "chevron.left",
+        "Forward": "chevron.right",
+        "Note List": "list.bullet.rectangle",
+        "Editor": "text.cursor",
+        "Welcome to Deckle": "books.vertical",
+        "Markdown Reference": "book",
+    ]
+
+    @MainActor
+    private static func addSymbols(to menu: NSMenu) {
+        for item in menu.items {
+            if item.image == nil, let symbol = symbols[item.title] {
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            }
+            if let submenu = item.submenu { addSymbols(to: submenu) }
+        }
     }
 
     @MainActor

@@ -62,6 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return false
     }
 
+    /// A note whose edits can't be saved keeps the app open until the user
+    /// has said what to do with them.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        windowController?.canClose() ?? true ? .terminateNow : .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         windowController?.saveAll()
     }
@@ -111,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         welcomeController?.close()
         if let current = windowController {
             if current.workspace.url.path == url.resolvingSymlinksInPath().path { return current.showWindow(nil) }
+            guard current.canClose() else { return }
             windowController = nil
             current.close()
         }
@@ -158,6 +165,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// The About panel, with what Deckle is and whose work it carries.
+    @objc func showAbout(_ sender: Any?) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.paragraphSpacing = 6
+        let credits = NSMutableAttributedString(
+            string: "A fast, native Markdown editor.\n",
+            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph])
+        credits.append(NSAttributedString(
+            string: "Math by KaTeX, diagrams by Mermaid, and Chinese type by LXGW WenKai Lite.",
+            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph]))
+        // The build number says nothing the version doesn't.
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits, .version: ""])
     }
 
     @objc func showMarkdownReference(_ sender: Any?) {
@@ -281,6 +303,7 @@ extension Debug {
 ///   -select <loc,len>     select this range of the open file
 ///   -scroll <fraction>    scroll this far down the open file, from 0 to 1
 ///   -type <text>          type this text at the selection
+///   -run <command>        run the menu command with this title
 ///   -exportPDF <path>     write the open note as a PDF there
 ///   -settings YES         open the Settings window, pictured as a panel
 ///   -welcome YES          open the Welcome window
@@ -307,6 +330,24 @@ enum Debug {
         sysctl(&name, 4, &info, &size, nil, 0)
         let start = info.kp_proc.p_un.__p_starttime
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
+    }
+
+    /// Runs the menu command titled `title`, as choosing it would, from
+    /// where the keyboard is in the workspace window.
+    private static func run(menuItem title: String, in controller: WindowController) {
+        func find(_ menu: NSMenu?) -> NSMenuItem? {
+            for item in menu?.items ?? [] {
+                if item.title == title, item.action != nil, item.submenu == nil { return item }
+                if let found = find(item.submenu) { return found }
+            }
+            return nil
+        }
+        guard let item = find(NSApp.mainMenu), let action = item.action else { return }
+        if let target = item.target {
+            NSApp.sendAction(action, to: target, from: item)
+        } else if controller.window?.firstResponder?.tryToPerform(action, with: item) != true {
+            NSApp.sendAction(action, to: nil, from: item)
+        }
     }
 
     static func runLaunchArguments(_ controller: WindowController?) {
@@ -355,6 +396,7 @@ enum Debug {
                 if let text = defaults.string(forKey: "type") {
                     editor.textView.insertText(text.replacingOccurrences(of: "\\n", with: "\n"), replacementRange: editor.textView.selectedRange())
                 }
+                if let title = defaults.string(forKey: "run") { run(menuItem: title, in: controller) }
                 if let hover = defaults.string(forKey: "hover"), let index = Int(hover) {
                     // The pointer over a character, with ⌘ held if asked.
                     let rect = editor.textView.firstRect(forCharacterRange: NSRange(location: index, length: 1), actualRange: nil)

@@ -251,14 +251,30 @@ impl Doc {
             elem_end: (s.elem_end as i64 + unit_delta) as u32,
             ..*s
         };
+        // A line of a long block, such as a code block or a quote, looks the
+        // same when the block grows or shrinks around an edit elsewhere in
+        // it: its span keeps everything but the far edge of its element,
+        // which moves with the text. Such lines are not dirty, so typing in
+        // a block of thousands of lines restyles the line typed in, not the
+        // block. The editor restyles the first line of a block it draws as
+        // a whole, a table or a diagram, itself.
+        let same_before = |b: &Span, a: &Span| {
+            b.end < start
+                && (b == a
+                    || (b.elem_end >= old_end
+                        && Span { elem_end: (b.elem_end as i64 + unit_delta) as u32, ..*b } == *a))
+        };
+        let same_after = |b: &Span, a: &Span| {
+            let moved = shift(b);
+            b.start > old_end && (moved == *a || (b.elem_start <= start && Span { elem_start: b.elem_start, ..moved } == *a))
+        };
         let mut head = 0;
-        while head < before.len() && head < after.len() && before[head] == after[head] && before[head].elem_end < start {
+        while head < before.len() && head < after.len() && same_before(&before[head], &after[head]) {
             head += 1;
         }
         let mut tail = 0;
         while tail < before.len() - head && tail < after.len() - head {
-            let b = &before[before.len() - 1 - tail];
-            if b.elem_start <= old_end || shift(b) != after[after.len() - 1 - tail] {
+            if !same_after(&before[before.len() - 1 - tail], &after[after.len() - 1 - tail]) {
                 break;
             }
             tail += 1;

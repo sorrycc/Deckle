@@ -70,6 +70,10 @@ File > Print… (⌥⌘P) prints the note as it is drawn, with its images, table
 
 Edits are saved 0.6 seconds after you stop typing, when you switch tabs or apps, and when Deckle quits. When another app changes an open note that has no unsaved edits, Deckle takes in the change. If the note has unsaved edits, Deckle's version is written over the other at the next save.
 
+A file that isn't UTF-8 is saved in the encoding it was read in, so an old note keeps its bytes apart from what you change. If a note can't be saved, because its file is locked or its disk is gone, Deckle says so once and keeps trying; closing the note, the window or the app then asks whether to save a copy elsewhere or discard the edits.
+
+Each note has its own undo history. With nothing left to undo in the note, ⌘Z undoes the last change to files, such as a move to the Trash.
+
 ## Settings
 
 Settings (⌘,) holds the theme, the editor font and size, whether syntax hides, spell checking, the line width and the line height. ⌘+ and ⌘- change the font size. A theme colors the whole window, the panels, the diagrams and the selection, not only the page. Settings are stored in the `dev.sorrycc.deckle` user defaults.
@@ -85,6 +89,7 @@ For trying the app from a script:
 | `-select <loc,len>` | Selects this range of the open file, in UTF-16 units |
 | `-scroll <fraction>` | Scrolls this far down the open file, from 0 to 1 |
 | `-type <text>` | Types this text at the selection; `\n` is a line break |
+| `-run <command>` | Runs the menu command with this title, such as `Find…` or `Toggle Done`, after the typing |
 | `-hover <index>` | Moves the pointer over this character; `-command YES` holds ⌘ |
 | `-palette files\|search\|commands\|headings\|backlinks` | Opens a panel; `-query <text>` fills it in |
 | `-welcome YES` | Opens the Welcome window, pictured as a panel |

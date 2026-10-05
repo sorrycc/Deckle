@@ -42,7 +42,10 @@ final class BacklinksController: NSViewController {
         }
         let scroll = NSScrollView()
         scroll.documentView = stack
-        scroll.drawsBackground = false
+        // A wash of the page's color over the popover's glass, as the
+        // palette has, so the lines read over whatever is behind them.
+        scroll.drawsBackground = true
+        scroll.backgroundColor = Theme.current.background.withAlphaComponent(0.72)
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         stack.translatesAutoresizingMaskIntoConstraints = false

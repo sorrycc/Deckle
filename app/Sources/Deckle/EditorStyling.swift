@@ -365,7 +365,7 @@ final class Styler {
                 if let destination = spans.first(where: { $0.kindValue == target && $0.element == span.element }),
                     destination.range.upperBound <= storage.length, destination.range != span.range
                 {
-                    text.addAttribute(.toolTip, value: (storage.string as NSString).substring(with: destination.range), range: r)
+                    text.addAttribute(.toolTip, value: storage.mutableString.substring(with: destination.range), range: r)
                 }
             case DeckleImage:
                 text.addAttribute(.foregroundColor, value: theme.secondary, range: r)

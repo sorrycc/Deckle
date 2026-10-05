@@ -192,7 +192,39 @@ fn edits_match_a_fresh_parse() {
             for s in &outside_old {
                 assert!(outside_new.contains(s), "round {round} step {step}: {s:?} changed outside {dirty:?}, insert {insert:?} at {start}..{end}");
             }
+            // A span of an element the edit is in, on a line outside the
+            // reported range, kept everything but the element's far edge.
+            for s in before.iter().filter(|s| !(s.elem_end as usize + 1 < start || s.elem_start as usize > end)) {
+                let moved = |v: u32| (v as i64 + delta) as u32;
+                let kept = if s.end < dirty.0 && (s.end as usize) < start {
+                    vec![*s, Span { elem_end: moved(s.elem_end), ..*s }]
+                } else if s.start as usize > end && moved(s.start) > dirty.1 {
+                    let shifted = Span { start: moved(s.start), end: moved(s.end), elem_start: moved(s.elem_start), elem_end: moved(s.elem_end), ..*s };
+                    vec![shifted, Span { elem_start: s.elem_start, ..shifted }]
+                } else {
+                    continue;
+                };
+                assert!(
+                    kept.iter().any(|k| got.contains(k)),
+                    "round {round} step {step}: {s:?} changed outside {dirty:?}, insert {insert:?} at {start}..{end}"
+                );
+            }
         }
+    }
+}
+
+#[test]
+fn typing_in_a_long_block_dirties_its_line() {
+    let line = "let value = compute(1) // a line of code\n";
+    for (open, body, close) in [("```swift\n", line, "```\n"), ("", "> a line of a long quote\n", "")] {
+        let text = format!("# Title\n\n{open}{}{close}\nAfter.\n", body.repeat(400));
+        let mut doc = Doc::new(text, "markdown");
+        let at = (9 + open.len() + body.len() * 200 + 5) as u32;
+        let dirty = doc.edit(at, 0, "x");
+        assert!(dirty.0 <= at && dirty.1 > at, "{dirty:?} misses the edit at {at}");
+        assert!((dirty.1 - dirty.0) as usize <= 2 * body.len(), "{dirty:?} is more than the line at {at}");
+        let dirty = doc.edit(at, 1, "");
+        assert!((dirty.1 - dirty.0) as usize <= 2 * body.len(), "{dirty:?} is more than the line at {at}");
     }
 }
 

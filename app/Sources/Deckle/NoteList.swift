@@ -76,6 +76,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         NotificationCenter.default.addObserver(
             self, selector: #selector(themeChanged(_:)), name: .appearanceDidChange, object: nil)
         headerEdge.boxType = .separator
+        headerEdge.wantsLayer = true
         headerEdge.alphaValue = 0
 
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -104,6 +105,7 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
             header.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             header.heightAnchor.constraint(equalToConstant: 28),
             headerEdge.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 1),
+            headerEdge.heightAnchor.constraint(equalToConstant: 1),
             headerEdge.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             headerEdge.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 2),
@@ -123,10 +125,20 @@ final class NoteListController: NSViewController, NSTableViewDataSource, NSTable
         table.enumerateAvailableRowViews { row, _ in row.needsDisplay = true }
     }
 
-    @objc private func scrolled(_ note: Notification) {
+    @objc private func scrolled(_ note: Notification) { updateHeaderEdge() }
+
+    private func updateHeaderEdge() {
         let scrolled = scrollView.contentView.bounds.origin.y > 1
         let alpha: CGFloat = scrolled ? 1 : 0
-        if headerEdge.alphaValue != alpha { headerEdge.animator().alphaValue = alpha }
+        guard headerEdge.alphaValue != alpha else { return }
+        // Out of a window there is nothing to animate, and the change would
+        // be lost.
+        if view.window == nil { headerEdge.alphaValue = alpha } else { headerEdge.animator().alphaValue = alpha }
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        updateHeaderEdge()
     }
 
     /// The note a command in the list acts on.
@@ -367,7 +379,8 @@ final class NoteRowView: NSTableRowView {
         super.draw(dirtyRect)
         guard !isSelected, !isNextRowSelected else { return }
         let theme = Theme.current
-        (theme.appearance == nil ? NSColor.separatorColor : theme.rule.withAlphaComponent(0.6)).setFill()
+        // A hairline: a shade of the text, a tenth as strong.
+        (theme.appearance == nil ? NSColor.separatorColor : theme.text.withAlphaComponent(0.1)).setFill()
         // As long as the selection plate, from the text's edge.
         NSRect(x: 20, y: bounds.maxY - 1, width: max(0, bounds.width - 30), height: 1).fill()
     }
@@ -438,6 +451,15 @@ final class NoteCell: NSTableCellView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// A layer's color is fixed when it is set, so the thumbnail's edge is
+    /// set again whenever light turns to dark.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            thumbnail.layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
 
     func show(_ note: NoteSummary) {
         titleLabel.stringValue = note.title

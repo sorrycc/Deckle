@@ -67,7 +67,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         hint.textColor = .secondaryLabelColor
         hint.alignment = .center
         let open = NSButton(title: "Open…", target: self, action: #selector(chooseFolder(_:)))
-        open.bezelStyle = .glass
+        open.bezelStyle = .push
         open.controlSize = .large
         // The one thing to do here: the default button, in the accent color.
         open.keyEquivalent = "\r"

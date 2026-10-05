@@ -51,6 +51,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         )
         window.title = workspace.name
         window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 640, height: 400)
         super.init(window: window)
@@ -108,10 +109,17 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
             self?.updateBacklinks()
         }
         workspace.onFileChange = { [weak self] url in
-            self?.tabs.first { $0.url?.path == url.path }?.loadedEditor?.reloadFromDisk()
+            // Every tab that shows it: one note can be open in two.
+            self?.tabs.filter { $0.url?.path == url.path }.forEach { $0.loadedEditor?.reloadFromDisk() }
         }
         NotificationCenter.default.addObserver(
             self, selector: #selector(splitResized(_:)), name: NSSplitView.didResizeSubviewsNotification, object: split.splitView)
+        // The editor's column itself says when it takes a new width. A
+        // window that opens with its saved layout is never resized, and
+        // the tabs would keep the narrow strip they were made with.
+        pane.view.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(splitResized(_:)), name: NSView.frameDidChangeNotification, object: pane.view)
         NotificationCenter.default.addObserver(self, selector: #selector(themeChanged(_:)), name: .appearanceDidChange, object: nil)
         applyTheme()
         Debug.mark("window built")
@@ -187,6 +195,12 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         tabs.forEach { $0.save() }
         saveSession()
     }
+
+    /// Whether every note is saved, or the user agreed to what isn't: asked
+    /// before the window closes, the workspace changes or the app quits.
+    func canClose() -> Bool { tabs.allSatisfy { $0.canClose() } }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool { canClose() }
 
     func windowWillClose(_ notification: Notification) {
         saveAll()
@@ -287,8 +301,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     }
 
     private func close(_ tab: Tab) {
-        guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
-        tab.save()
+        guard let index = tabs.firstIndex(where: { $0 === tab }), tab.canClose() else { return }
         if let url = tab.url {
             let position = tab.position
             closedTabs.append((url, position.selection, position.scroll, index))
@@ -319,7 +332,8 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     func tabStrip(_ strip: TabStripView, move tab: Tab, to index: Int) {
         guard let from = tabs.firstIndex(where: { $0 === tab }) else { return }
-        tabs.insert(tabs.remove(at: from), at: min(index, tabs.count - 1))
+        let moved = tabs.remove(at: from)
+        tabs.insert(moved, at: min(index, tabs.count))
         tabChanged()
     }
 
@@ -359,9 +373,10 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     @objc func newNote(_ sender: Any?) {
         let folder = tree.isViewLoaded ? tree.targetFolder : workspace.url
-        guard let url = tree.createNote(in: folder, text: "# ") else { return }
+        guard let url = tree.createNote(in: folder, text: "# ", opens: false) else { return }
         open(url)
-        selectedTab.editor?.reveal(NSRange(location: 2, length: 0))
+        // Unless the tab stayed with a note it couldn't save.
+        if selectedTab.url?.path == url.path { selectedTab.editor?.reveal(NSRange(location: 2, length: 0)) }
     }
 
     @objc func saveDocument(_ sender: Any?) { selectedTab.save() }
@@ -569,7 +584,7 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
                 let name = target.split(separator: "#").first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? target
                 guard !name.isEmpty else { return }
                 let folder = editor.url.deletingLastPathComponent()
-                if let url = tree.createNote(in: folder, named: name.replacingOccurrences(of: "/", with: "-"), text: "# \(name)\n\n") {
+                if let url = tree.createNote(in: folder, named: name.replacingOccurrences(of: "/", with: "-"), text: "# \(name)\n\n", opens: false) {
                     open(url, inNewTab: inNewTab)
                 }
             }
@@ -611,12 +626,48 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     func fileTree(_ tree: FileTreeController, moved old: URL, to new: URL) {
         tabs.forEach { $0.fileMoved(from: old, to: new) }
-        tabChanged()
+        // The tabs closed before and the folder the list shows follow too.
+        for index in closedTabs.indices {
+            if let url = Self.moved(closedTabs[index].url, from: old, to: new) { closedTabs[index].url = url }
+        }
+        if let folder = Self.moved(list.folder, from: old, to: new) { list.show(folder: folder) }
+        tabChanged(focusEditor: editorHasKeyboard)
+    }
+
+    func fileTree(_ tree: FileTreeController, shouldRemove url: URL) -> Bool {
+        // What was typed in the last moment goes to the file before it
+        // goes to the Trash, so Undo brings all of it back. Edits that
+        // can't be written are asked about first.
+        tabs.filter { $0.url.map { Self.isAt($0, orUnder: url) } ?? false }.allSatisfy { $0.canClose() }
     }
 
     func fileTree(_ tree: FileTreeController, removed url: URL) {
+        // The keyboard stays where it was: in a list, the next ⌘⌫ trashes
+        // the next note rather than deleting text in the one now shown.
+        let focus = editorHasKeyboard
         for tab in tabs { _ = tab.fileRemoved(url) }
-        tabChanged()
+        closedTabs.removeAll { Self.isAt($0.url, orUnder: url) }
+        if Self.isAt(list.folder, orUnder: url) { list.show(folder: workspace.url) }
+        tabChanged(focusEditor: focus)
+    }
+
+    /// Whether the keyboard is in the editor's pane, or nowhere in particular.
+    private var editorHasKeyboard: Bool {
+        guard let responder = window?.firstResponder as? NSView else { return true }
+        if tree.isViewLoaded, responder.isDescendant(of: tree.view) { return false }
+        if list.isViewLoaded, responder.isDescendant(of: list.view) { return false }
+        return true
+    }
+
+    private static func isAt(_ url: URL, orUnder folder: URL) -> Bool {
+        url.path == folder.path || url.path.hasPrefix(folder.path + "/")
+    }
+
+    /// Where `url` is after `old` moved to `new`, if it was at or under it.
+    private static func moved(_ url: URL, from old: URL, to new: URL) -> URL? {
+        if url.path == old.path { return new }
+        guard url.path.hasPrefix(old.path + "/") else { return nil }
+        return new.appendingPathComponent(String(url.path.dropFirst(old.path.count + 1)))
     }
 
     func fileTreeSwitchWorkspace(_ tree: FileTreeController, to url: URL?) { onSwitchWorkspace?(url) }

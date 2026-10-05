@@ -53,13 +53,22 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     var completion: CompletionPopup { .shared }
     private let rail = OutlineRail()
     private var outlinePending = false
+    /// The note's own undo history. On the window's, which every tab would
+    /// share, ⌘Z in one note could undo typing in another, out of sight.
+    private let undo = UndoManager()
+    /// Counts the edits, for work that waits and has to know whether the
+    /// text is still the one it was asked about.
+    private(set) var generation = 0
+    /// The encoding the file was read in, which it is written back in.
+    private var encoding: String.Encoding
 
     var storage: NSTextStorage { contentStorage.textStorage! }
     var text: String { storage.string }
     var isMarkdown: Bool { styler.isMarkdown }
 
-    init(url: URL, text: String) {
+    init(url: URL, text: String, encoding: String.Encoding = .utf8) {
         self.url = url
+        self.encoding = encoding
         let language = Language.name(for: url)
         styler = Styler(language: language)
         core = CoreDocument(text: text, language: language)
@@ -135,7 +144,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         // A note opens with the insertion point on its first line of text,
         // past any front matter, which stays folded.
         if isMarkdown, let frontMatter = core.spans(in: NSRange(location: 0, length: min(1, storage.length))).first(where: { $0.kindValue == DeckleFrontMatter }) {
-            let string = storage.string as NSString
+            let string = storage.mutableString
             var location = min(frontMatter.element.upperBound, string.length)
             while location < string.length, let scalar = Unicode.Scalar(string.character(at: location)), CharacterSet.whitespacesAndNewlines.contains(scalar) {
                 location += 1
@@ -272,17 +281,26 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// Lays out again only the lines whose look depends on the column's
     /// width: images, tables, math and diagrams. The rest of a long note is
     /// left alone, so a resize costs no more than the widgets in it.
-    private func restyleWidgetLines() {
+    func restyleWidgetLines() {
         guard widgetStore != nil else { return }
         // The core answers with one span per line; a block is laid out once.
         var done: Set<Int> = []
+        var elements: [NSRange] = []
         for kind in [DeckleImage, DeckleTable, DeckleMathBlock, DeckleCodeBlock, DeckleInlineMath] {
             for span in core.spans(ofKind: kind) {
                 if kind == DeckleImage && span.flags & 1 == 0 { continue }
                 if kind == DeckleCodeBlock && span.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) == 0 { continue }
-                if done.insert(span.element.location).inserted { restyle(span.element) }
+                if done.insert(span.element.location).inserted { elements.append(span.element) }
             }
         }
+        restyle(elements)
+    }
+
+    /// A picture asked for at `generation` is ready for the lines at
+    /// `range`. If the text changed meanwhile the range may be another
+    /// line's by now, so every line with a picture is laid out again.
+    func widgetArrived(for range: NSRange, askedAt generation: Int) {
+        if generation == self.generation { restyle(range) } else { restyleWidgetLines() }
     }
 
     /// The column width the widgets were last laid out for.
@@ -301,6 +319,20 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         max(100, bounds.width - 2 * textView.textContainerInset.width - 2 * (textView.textContainer?.lineFragmentPadding ?? 0))
     }
 
+    func undoManager(for view: NSTextView) -> UndoManager? { undo }
+
+    /// Told when the find bar comes or goes, with whether it is showing.
+    var onFindBarChange: ((Bool) -> Void)? {
+        didSet {
+            guard onFindBarChange != nil, findBarObservation == nil else { return }
+            findBarObservation = scrollView.observe(\.isFindBarVisible) { [weak self] scrollView, _ in
+                MainActor.assumeIsolated { self?.onFindBarChange?(scrollView.isFindBarVisible) }
+            }
+        }
+    }
+
+    private var findBarObservation: NSKeyValueObservation?
+
     // MARK: Text changes
 
     func textStorage(
@@ -308,9 +340,11 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         changeInLength delta: Int
     ) {
         guard editedMask.contains(.editedCharacters) else { return }
-        let string = textStorage.string as NSString
+        let string = textStorage.mutableString
         let inserted = string.substring(with: editedRange)
         var stale = core.edit(at: editedRange.location, oldLength: editedRange.length - delta, text: inserted)
+        cachedHeadings = nil
+        generation += 1
         // The line after the change too, when the change could have made
         // or unmade a heading: a blank line after a heading is drawn
         // shorter. Typing within a line leaves the line after it alone.
@@ -324,8 +358,35 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
                 let next = string.paragraphRange(for: NSRange(location: min(end.upperBound, last), length: 0))
                 stale = NSUnionRange(stale, next)
             }
+            // A block drawn as a whole, a table, math or a diagram, is
+            // drawn from its first line, which the core leaves alone when
+            // the edit is further down the block.
+            if isMarkdown {
+                for span in core.spans(in: line) {
+                    switch span.kindValue {
+                    case DeckleTable, DeckleMathBlock: stale = NSUnionRange(stale, span.element)
+                    case DeckleCodeBlock where span.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) != 0:
+                        stale = NSUnionRange(stale, span.element)
+                    default: break
+                    }
+                }
+            }
         }
         staleStyle = staleStyle.map { NSUnionRange($0, stale) } ?? stale
+        // The elements showing their syntax move with the text, so the
+        // selection that follows the edit finds them where it left them.
+        // Otherwise every key typed in a long code block would find the
+        // block a character longer, take it for another one, and restyle
+        // all of it.
+        let oldEnd = editedRange.location + editedRange.length - delta
+        revealed = revealed.map { element in
+            if element.upperBound < editedRange.location { return element }
+            if element.location >= oldEnd && element.location > editedRange.location {
+                return NSRange(location: element.location + delta, length: element.length)
+            }
+            let start = min(element.location, editedRange.location)
+            return NSRange(location: start, length: max(editedRange.upperBound, element.upperBound + delta) - start)
+        }
         // Editing ends before the styling is redrawn; textDidChange does it
         // for the user's edits, and this for any other.
         DispatchQueue.main.async { [weak self] in self?.flushStaleStyle() }
@@ -333,7 +394,11 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         // is too much for every keystroke of a long note: an edit that
         // brings in Chinese or Japanese is checked at once, and any other
         // once typing pauses.
-        if inserted.utf16.contains(where: { CJK.isKana($0) || CJK.isHan($0) }) {
+        // Kana can only make a note Japanese, and Han characters only
+        // stop it being one, so typing Chinese into a Chinese note, or
+        // Japanese into a Japanese one, waits for the pause too.
+        let japanese = styler.isJapaneseDocument
+        if inserted.utf16.contains(where: { japanese ? CJK.isHan($0) : CJK.isKana($0) }) {
             checkJapanese()
         } else {
             scheduleJapaneseCheck()
@@ -355,7 +420,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// A note that turns Japanese, or stops being, redraws its lines of
     /// only Han characters in the other forms.
     private func checkJapanese() {
-        let japanese = CJK.isJapanese(text)
+        let japanese = CJK.isJapanese(storage.mutableString)
         guard japanese != styler.isJapaneseDocument else { return }
         styler.isJapaneseDocument = japanese
         widgetStore?.invalidateTables()
@@ -370,7 +435,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         isDirty = true
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.save() }
+            MainActor.assumeIsolated { _ = self?.save() }
         }
         delegate?.editorTextDidChange(self)
     }
@@ -404,7 +469,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     func restyle(_ ranges: [NSRange]) {
         let length = storage.length
         guard length > 0, !isRestyling else { return }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let lines = ranges.compactMap { range -> NSRange? in
             let clamped = NSIntersectionRange(range, NSRange(location: 0, length: length))
             let start = min(range.location, length)
@@ -428,7 +493,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// Whether the blank paragraph at `range` comes right after a heading.
     private func followsHeading(_ range: NSRange) -> Bool {
         guard isMarkdown, range.location > 0, range.length <= 2 else { return false }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         guard string.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let previous = string.paragraphRange(for: NSRange(location: range.location - 1, length: 0))
         return core.spans(in: previous).contains { $0.kindValue == DeckleHeading }
@@ -472,7 +537,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// The elements with syntax to show for a selection: those it touches.
     private func elements(touching selection: NSRange) -> [NSRange] {
         guard isMarkdown, styler.hidesMarkers, selection.length < 4000, storage.length > 0 else { return [] }
-        let lines = (storage.string as NSString).paragraphRange(for: selection)
+        let lines = storage.mutableString.paragraphRange(for: selection)
         var found: [NSRange] = []
         let spans = core.spans(in: lines)
         for span in spans {
@@ -523,7 +588,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// as code, or front matter: the lines whose look depends on the
     /// selection.
     private func fenceLines(of element: NSRange) -> [NSRange]? {
-        let string = storage.string as NSString
+        let string = storage.mutableString
         guard element.length > 0, element.upperBound <= string.length else { return nil }
         let first = string.paragraphRange(for: NSRange(location: element.location, length: 0))
         let isBlock = core.spans(in: first).contains {
@@ -614,7 +679,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// The text of the link at a character: what a ⌘-click would follow.
     private func linkElement(at index: Int) -> NSRange? {
         guard isMarkdown, storage.length > 0, index <= storage.length else { return nil }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
         for span in core.spans(in: lines) where span.element.location <= index && index <= span.element.upperBound {
             switch span.kindValue {
@@ -636,7 +701,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// The code block, drawn as code, that the character at `index` is in.
     private func codeBlock(at index: Int) -> NSRange? {
         guard storage.length > 0 else { return nil }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
         return core.spans(in: lines).first {
             $0.kindValue == DeckleCodeBlock && $0.flags & UInt16(DeckleCodeDiagram | DeckleCodeMath) == 0
@@ -687,7 +752,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     private func updateCompletion() {
         let selection = textView.selectedRange()
         guard isMarkdown, selection.length == 0, !textView.hasMarkedText(), !isCode(at: selection.location) else { return completion.close(for: self) }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let line = string.lineRange(for: NSRange(location: selection.location, length: 0))
         let head = string.substring(with: NSRange(location: line.location, length: selection.location - line.location))
         let headRange = NSRange(location: 0, length: (head as NSString).length)
@@ -715,7 +780,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
             let name = url.deletingPathExtension().lastPathComponent
             return CompletionPopup.Item(symbol: "doc.text", title: name, detail: note.rel, apply: { editor, trigger in
                 // Takes in the ]] typed after the insertion point too.
-                let text = editor.storage.string as NSString
+                let text = editor.storage.mutableString
                 var range = trigger
                 if range.upperBound + 2 <= text.length, text.substring(with: NSRange(location: range.upperBound, length: 2)) == "]]" {
                     range.length += 2
@@ -753,9 +818,9 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 
     /// Saves image data from the clipboard as a PNG in `assets`, and links it.
     func insertImage(data: Data, replacing range: NSRange) {
-        guard let image = NSImage(data: data), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-            let png = rep.representation(using: .png, properties: [:])
-        else { return }
+        // PNG data is written as it is; anything else is converted.
+        let isPNG = data.starts(with: [0x89, 0x50, 0x4E, 0x47])
+        guard let png = isPNG ? data : NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) else { return }
         let assets = url.deletingLastPathComponent().appendingPathComponent("assets", isDirectory: true)
         let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "")
         let target = FileTreeController.freeName("Pasted \(stamp)", extension: "png", in: assets)
@@ -775,7 +840,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         let encoded = relative.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? relative
         let name = file.deletingPathExtension().lastPathComponent
         let link = Files.isImage(file) ? "![\(name)](\(encoded))" : Files.isMarkdown(file) ? "[[\(name)]]" : "[\(file.lastPathComponent)](\(encoded))"
-        let string = storage.string as NSString
+        let string = storage.mutableString
         // An image goes on a line of its own.
         let needsBreak = Files.isImage(file) && range.location > 0 && string.character(at: range.location - 1) != 10
         let text = (needsBreak ? "\n" : "") + link
@@ -793,32 +858,82 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 
     // MARK: Saving
 
-    /// Writes the text to its file if it changed.
-    func save() {
+    /// Writes the text to its file if it changed. Returns whether the file
+    /// now holds the text.
+    @discardableResult
+    func save(reportsFailure: Bool = true) -> Bool {
         saveTimer?.invalidate()
         saveTimer = nil
-        guard isDirty else { return }
+        guard isDirty else { return true }
         do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            // In the encoding the file came in, unless the text has since
+            // taken in what that encoding can't hold.
+            var data = text.data(using: encoding)
+            if data == nil {
+                encoding = .utf8
+                data = Data(text.utf8)
+            }
+            try data?.write(to: url, options: .atomic)
             isDirty = false
             saveFailed = false
+            savedStamp = Files.stamp(url)
             delegate?.editorDidSave(self)
+            return true
         } catch {
             NSLog("Deckle: could not save \(url.path): \(error.localizedDescription)")
             // Said once: every edit tries again, and the file may stay
-            // read-only for a while.
-            guard !saveFailed else { return }
+            // read-only for a while. Not said at all when the caller has
+            // its own question to ask about the failure.
+            guard !saveFailed, reportsFailure else { return false }
             saveFailed = true
             let alert = NSAlert()
             alert.messageText = "The note couldn't be saved"
             alert.informativeText = "\(url.lastPathComponent) couldn't be written. \(error.localizedDescription) Your edits stay in the editor, and Deckle will try again after the next change."
             alert.alertStyle = .warning
             if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+            return false
+        }
+    }
+
+    /// Saves before the editor goes away: its tab closing, showing another
+    /// note, or the app quitting. Edits that can't be written to the note's
+    /// own file are offered a file elsewhere rather than dropped unasked.
+    /// Returns false to keep the editor.
+    func saveBeforeLeaving() -> Bool {
+        if save(reportsFailure: false) { return true }
+        let alert = NSAlert()
+        alert.messageText = "\(url.lastPathComponent) has edits that couldn't be saved"
+        alert.informativeText = "Its file can't be written. Save a copy somewhere else to keep the edits made since the last save."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save a Copy…")
+        alert.addButton(withTitle: "Discard Edits")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = url.lastPathComponent
+            guard panel.runModal() == .OK, let copy = panel.url else { return false }
+            do {
+                try Data(text.utf8).write(to: copy, options: .atomic)
+            } catch {
+                presentError(error)
+                return false
+            }
+            isDirty = false
+            return true
+        case .alertSecondButtonReturn:
+            isDirty = false
+            return true
+        default:
+            return false
         }
     }
 
     /// The last save failed, and the user has been told.
     private var saveFailed = false
+    /// When the file was last changed, and how long it was, as this
+    /// editor's own save left it.
+    private var savedStamp: Files.Stamp?
 
     /// The file moved.
     func moved(to url: URL) {
@@ -828,7 +943,11 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// Takes the file's text after something else wrote it. Unsaved edits
     /// win: they are written over it at the next save.
     func reloadFromDisk() {
-        guard !isDirty, let disk = Files.readText(url), disk != text else { return }
+        // The file as this editor wrote it holds nothing new to read.
+        guard !isDirty else { return }
+        if let savedStamp, let stamp = Files.stamp(url), stamp == savedStamp { return }
+        guard let (disk, encoding) = Files.read(url), disk != text else { return }
+        self.encoding = encoding
         replaceText(with: disk)
         isDirty = false
         saveTimer?.invalidate()
@@ -846,6 +965,10 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         while suffix < shortest - prefix
             && old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix)
         { suffix += 1 }
+        // Not through the middle of a character: two emoji often share the
+        // first half of their pair, and half a pair is no character at all.
+        if prefix > 0, UTF16.isLeadSurrogate(old.character(at: prefix - 1)) { prefix -= 1 }
+        if suffix > 0, UTF16.isTrailSurrogate(old.character(at: old.length - suffix)) { suffix -= 1 }
         let range = NSRange(location: prefix, length: old.length - prefix - suffix)
         let replacement = new.substring(with: NSRange(location: prefix, length: new.length - prefix - suffix))
         replace(range, with: replacement)
@@ -874,28 +997,35 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
         window?.makeFirstResponder(textView)
     }
 
+    /// The note's headings, read from the core once per edit: the outline
+    /// asks for them as the note scrolls, which changes none of them.
     var headings: [Heading] {
-        let string = storage.string as NSString
-        return core.spans(ofKind: DeckleHeading).compactMap { span in
+        if let cachedHeadings { return cachedHeadings }
+        let string = storage.mutableString
+        let headings: [Heading] = core.spans(ofKind: DeckleHeading).compactMap { span in
             guard span.range.upperBound <= string.length else { return nil }
             var title = string.substring(with: span.range)
             title = title.trimmingCharacters(in: CharacterSet(charactersIn: "# \t"))
             return title.isEmpty ? nil : Heading(level: Int(span.level), title: title, range: span.range)
         }
+        cachedHeadings = headings
+        return headings
     }
+
+    private var cachedHeadings: [Heading]?
 
     /// The line and column of the insertion point, from 1.
     var position: (line: Int, column: Int) {
         let selection = textView.selectedRange()
         let location = min(selection.location, storage.length)
-        let line = (storage.string as NSString).lineRange(for: NSRange(location: location, length: 0))
+        let line = storage.mutableString.lineRange(for: NSRange(location: location, length: 0))
         return (core.line(of: location), location - line.location + 1)
     }
 
     /// What can be followed at a character, if anything.
     func link(at index: Int) -> EditorLink? {
         guard isMarkdown, index <= storage.length, storage.length > 0 else { return nil }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length - 1), length: 0))
         let spans = core.spans(in: lines)
         func text(of kind: Int, in element: NSRange) -> String? {
@@ -922,7 +1052,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// its syntax is folded away rather than shown for editing.
     func drawnTask(onLineAt index: Int) -> DeckleSpan? {
         guard isMarkdown, storage.length > 0 else { return nil }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let line = string.lineRange(for: NSRange(location: min(index, string.length - 1), length: 0))
         let spans = core.spans(in: line)
         guard let task = spans.first(where: { $0.kindValue == DeckleTaskMarker && NSLocationInRange(Int($0.start), line) }) else {
@@ -934,7 +1064,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 
     /// Jumps between a footnote's reference and its definition.
     func jumpToFootnote(_ label: String) {
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let definition = string.range(of: "[^\(label)]:")
         let current = textView.selectedRange().location
         if definition.location != NSNotFound && !NSLocationInRange(current, string.lineRange(for: definition)) {
@@ -948,7 +1078,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// The whole code block the line at `index` is in, fences included.
     func codeBlockElement(at index: Int) -> NSRange? {
         guard isMarkdown, storage.length > 0 else { return nil }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length), length: 0))
         return core.spans(in: lines).first { $0.kindValue == DeckleCodeBlock }?.element
     }
@@ -956,7 +1086,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// Whether the line at `index` is inside a code block or front matter.
     func isCode(at index: Int) -> Bool {
         guard isMarkdown, storage.length > 0 else { return !isMarkdown }
-        let string = storage.string as NSString
+        let string = storage.mutableString
         let lines = string.paragraphRange(for: NSRange(location: min(index, string.length), length: 0))
         return core.spans(in: lines).contains { $0.kindValue == DeckleCodeBlock || $0.kindValue == DeckleFrontMatter }
     }
@@ -965,14 +1095,39 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
 /// Reading files as text.
 enum Files {
     /// The text of a file, or nil when it isn't text.
-    static func readText(_ url: URL) -> String? {
+    static func readText(_ url: URL) -> String? { read(url)?.text }
+
+    /// The text of a file and the encoding it is in, or nil when it isn't
+    /// text. A file that isn't UTF-8 is read in an encoding that holds every
+    /// byte of it, and written back in the same one, so saving an old file
+    /// changes only what was edited.
+    static func read(_ url: URL) -> (text: String, encoding: String.Encoding)? {
         guard let data = try? Data(contentsOf: url) else { return nil }
-        if let text = String(data: data, encoding: .utf8) { return text }
+        if let text = String(data: data, encoding: .utf8) { return (text, .utf8) }
         // Not UTF-8: a file with a NUL in it is taken for binary.
         if data.prefix(4096).contains(0) { return nil }
         var converted: NSString?
-        let encoding = NSString.stringEncoding(for: data, encodingOptions: nil, convertedString: &converted, usedLossyConversion: nil)
-        return encoding == 0 ? nil : converted as String?
+        var lossy: ObjCBool = false
+        let encoding = NSString.stringEncoding(
+            for: data, encodingOptions: [.allowLossyKey: false], convertedString: &converted, usedLossyConversion: &lossy)
+        guard encoding != 0, !lossy.boolValue, let converted else { return nil }
+        return (converted as String, String.Encoding(rawValue: encoding))
+    }
+
+    static func modificationDate(_ url: URL) -> Date? { stamp(url)?.modified }
+
+    /// When a file was last written and its size: enough to tell whether
+    /// it is still the file a save left.
+    struct Stamp: Equatable {
+        let modified: Date
+        let size: Int
+    }
+
+    static func stamp(_ url: URL) -> Stamp? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+            let modified = attributes[.modificationDate] as? Date, let size = attributes[.size] as? Int
+        else { return nil }
+        return Stamp(modified: modified, size: size)
     }
 
     static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "tif", "bmp", "svg", "avif", "ico"]
