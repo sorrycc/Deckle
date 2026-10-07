@@ -1,4 +1,17 @@
 <?xml version='1.0' encoding='utf-8'?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
-  <channel><title>Deckle</title><link>https://github.com/sorrycc/Deckle/releases</link></channel>
+  <channel>
+    <title>Deckle</title>
+    <link>https://github.com/sorrycc/Deckle/releases</link>
+    <item>
+      <title>0.1.0-beta.1</title>
+      <pubDate>Wed, 07 Oct 2026 10:16:51 GMT</pubDate>
+      <sparkle:version>31</sparkle:version>
+      <sparkle:shortVersionString>0.1.0-beta.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/sorrycc/Deckle/releases/tag/v0.1.0-beta.1</sparkle:fullReleaseNotesLink>
+      <sparkle:channel>beta</sparkle:channel>
+      <enclosure url="https://github.com/sorrycc/Deckle/releases/download/v0.1.0-beta.1/Deckle-0.1.0-beta.1.zip" type="application/octet-stream" sparkle:edSignature="r/++4FUOFD+hRRJR2UY9hEgMmQk6JnjnajFQy6Ciorbm5rb796ETWevbaxdSWdq3sUSY8gSoSsj0iaHNV4MKDQ==" length="20597153" />
+    </item>
+  </channel>
 </rss>
