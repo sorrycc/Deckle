@@ -21,7 +21,8 @@ CHANNEL=""; PRERELEASE=()
 
 [ -z "$(git -C "$ROOT" status --porcelain)" ] || { echo "Commit first." >&2; exit 1; }
 [ -z "${GITHUB_REF_NAME:-}" ] || [ "$GITHUB_REF_NAME" = "$TAG" ] || { echo "Tag $GITHUB_REF_NAME doesn't match version $VERSION." >&2; exit 1; }
-[ -n "$(git -C "$ROOT" branch -r --contains HEAD)" ] || { echo "Push HEAD first: the release is tagged on GitHub." >&2; exit 1; }
+# In CI the pushed tag already puts HEAD on GitHub, even before its branch is pushed.
+[ -n "${GITHUB_REF_NAME:-}" ] || [ -n "$(git -C "$ROOT" branch -r --contains HEAD)" ] || { echo "Push HEAD first: the release is tagged on GitHub." >&2; exit 1; }
 gh release view "$TAG" >/dev/null 2>&1 && { echo "$TAG exists." >&2; exit 1; }
 
 if [ -n "${APPLE_ID:-}" ]; then
