@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Builds the Rust core and the Swift app, then assembles and ad-hoc signs
+# Builds the Rust core and the Swift app, then assembles and signs
 # build/Deckle.app. Usage: scripts/bundle.sh [debug|release]   (default: release)
 # DECKLE_OUT and DECKLE_BUNDLE_ID build a second copy with settings of its own,
 # for trying changes while the everyday Deckle keeps running.
+# SIGN_IDENTITY signs with a certificate instead of ad hoc, with the hardened
+# runtime and the update feed. BUILD sets CFBundleVersion (default: the commit
+# count).
 set -euo pipefail
 
 CONFIG="${1:-release}"
@@ -10,7 +13,21 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${DECKLE_OUT:-$ROOT/build}"
 APP="$OUT/Deckle.app"
 BUNDLE_ID="${DECKLE_BUNDLE_ID:-dev.sorrycc.deckle}"
-VERSION="0.1.0"
+# The one version number, from [workspace.package] in Cargo.toml.
+VERSION="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' "$ROOT/Cargo.toml")"
+# Sparkle compares CFBundleVersion, which must only go up.
+BUILD="${BUILD:-$(git -C "$ROOT" rev-list --count HEAD)}"
+IDENTITY="${SIGN_IDENTITY:--}"
+# Only Developer ID builds of the everyday Deckle have a feed, so dev builds
+# and second copies never replace themselves with a release.
+UPDATES=""
+if [ "$IDENTITY" != "-" ] && [ -z "${DECKLE_BUNDLE_ID:-}" ]; then
+    [ -s "$ROOT/scripts/sparkle-public-key" ] || { echo "scripts/sparkle-public-key is missing" >&2; exit 1; }
+    UPDATES="    <key>SUFeedURL</key><string>https://sorrycc.github.io/Deckle/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>$(tr -d '[:space:]' < "$ROOT/scripts/sparkle-public-key")</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUAutomaticallyUpdate</key><true/>"
+fi
 
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 
@@ -25,11 +42,12 @@ SWIFT_OUT="$(swift build --package-path "$ROOT/app" -c "$CONFIG" --show-bin-path
 # SwiftPM doesn't track the Rust static library, so a Rust-only change would
 # not relink. Removing the executable forces the link step.
 rm -f "$SWIFT_OUT/Deckle"
-swift build --package-path "$ROOT/app" -c "$CONFIG" -Xlinker -L"$RUST_OUT" -Xlinker -dead_strip
+swift build --package-path "$ROOT/app" -c "$CONFIG" -Xlinker -L"$RUST_OUT" -Xlinker -dead_strip \
+    -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 
 echo "==> assembling $APP"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,7 +61,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD</string>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleIconFile</key><string>Deckle</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
@@ -67,6 +85,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
             <key>LSItemContentTypes</key><array><string>public.folder</string></array>
         </dict>
     </array>
+$UPDATES
 </dict>
 </plist>
 PLIST
@@ -82,8 +101,22 @@ if [ -d "$ROOT/app/Resources/Bundled" ]; then
     cp -R "$ROOT/app/Resources/Bundled/." "$APP/Contents/Resources/"
 fi
 
-echo "==> ad-hoc signing"
-codesign --force --sign - "$APP"
+# Sparkle's XPC services are only for sandboxed apps, which Deckle isn't.
+ditto "$SWIFT_OUT/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+cp "$ROOT/app/.build/artifacts/sparkle/Sparkle/LICENSE" "$APP/Contents/Resources/LICENSE-Sparkle.txt"
+rm -rf "$APP/Contents/Frameworks/Sparkle.framework/XPCServices" \
+    "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices"
+
+# Notarization wants every piece of nested code signed before its container.
+echo "==> signing ($IDENTITY)"
+sign_flags=(--force --sign "$IDENTITY")
+[ "$IDENTITY" != "-" ] && sign_flags+=(--options runtime --timestamp)
+sign() { codesign "${sign_flags[@]}" "$@"; }
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+sign "$SPARKLE/Versions/B/Autoupdate"
+sign "$SPARKLE/Versions/B/Updater.app"
+sign "$SPARKLE"
+sign "$APP"
 
 echo "==> verifying signature"
 codesign --verify --deep --strict "$APP"

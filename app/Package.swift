@@ -6,11 +6,17 @@ import PackageDescription
 let package = Package(
     name: "Deckle",
     platforms: [.macOS(.v26)],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
+    ],
     targets: [
         .systemLibrary(name: "CDeckleCore", path: "Sources/CDeckleCore"),
         .executableTarget(
             name: "Deckle",
-            dependencies: ["CDeckleCore"]
+            dependencies: [
+                "CDeckleCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ]
         ),
     ]
 )

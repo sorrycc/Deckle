@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyAppearance()
         NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged(_:)), name: .appearanceDidChange, object: nil)
         NSApp.mainMenu = MainMenu.build()
+        Updater.shared.start()
         launched = true
 
         let defaults = UserDefaults.standard

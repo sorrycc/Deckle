@@ -8,6 +8,10 @@ enum MainMenu {
 
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About Deckle", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+        if Updater.isAvailable {
+            let update = appMenu.addItem(withTitle: "Check for Updates…", action: #selector(Updater.checkForUpdates(_:)), keyEquivalent: "")
+            update.target = Updater.shared
+        }
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())

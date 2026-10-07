@@ -10,7 +10,7 @@
 
 Deckle pairs an AppKit interface with a Rust core. Notes are plain `.md` files in a folder you choose.
 
-> **Status:** early development. Deckle requires macOS 26 and is built from source.
+> **Status:** early development. Deckle requires macOS 26 on Apple silicon. Download the DMG from [Releases](https://github.com/sorrycc/Deckle/releases), or build it from source. Installed copies update themselves.
 
 ## Features
 
@@ -45,6 +45,15 @@ The script builds the Rust core and the Swift app, then assembles an ad-hoc sign
 
 Run the core's tests with `cargo test --release`.
 
+## Releasing
+
+Releases are signed with a Developer ID, notarized, and published on GitHub Releases. Installed copies update through [Sparkle](https://sparkle-project.org) from the appcast at `https://sorrycc.github.io/Deckle/appcast.xml`.
+
+1. Set `version` under `[workspace.package]` in `Cargo.toml` and commit. A version with a pre-release part, such as `0.2.0-beta.1`, is a beta: a GitHub pre-release that only copies with Settings > Updates > Include beta versions turned on are offered.
+2. Push a tag for it, `git tag v0.2.0 && git push origin master v0.2.0`, and GitHub Actions builds and publishes the release. Or run `scripts/release.sh` on a Mac with the certificate, the `deckle-notary` notarytool profile, and the Sparkle key in the keychain.
+
+`CFBundleVersion` is the commit count, so release from `master` only. `scripts/bundle.sh` writes the update feed only into Developer ID builds of the everyday bundle ID, so dev builds never update themselves.
+
 ## Project layout
 
 | Path | Description |
@@ -53,7 +62,9 @@ Run the core's tests with `cargo test --release`.
 | `app/` | SwiftPM package for the AppKit app |
 | `app/Sources/CDeckleCore/deckle_core.h` | C interface between the core and the app |
 | `app/Resources/Bundled/` | Bundled KaTeX, Mermaid and fonts |
-| `scripts/bundle.sh` | Build and packaging script |
+| `scripts/bundle.sh` | Build, packaging and signing script |
+| `scripts/release.sh` | Notarizes and publishes a release and its appcast item |
+| `scripts/sparkle-public-key` | Public key that installed copies check updates against |
 
 ## Documentation
 
@@ -71,4 +82,5 @@ Deckle bundles the following third-party software:
 |---|---|---|
 | [KaTeX](https://katex.org) | 0.16.22 | [MIT](app/Resources/Bundled/Renderer/LICENSE-KaTeX.txt), © Khan Academy and other contributors |
 | [Mermaid](https://mermaid.js.org) | 11.12.0 | [MIT](app/Resources/Bundled/Renderer/LICENSE-Mermaid.txt), © Knut Sveidqvist |
+| [Sparkle](https://sparkle-project.org) | 2.10.0 | [MIT](https://github.com/sparkle-project/Sparkle/blob/2.x/LICENSE), © Andy Matuschak and other contributors |
 | [LXGW WenKai Lite](https://github.com/lxgw/LxgwWenKai-Lite) | | [SIL Open Font License 1.1](app/Resources/Bundled/Fonts/OFL.txt), © LXGW and The Klee Project Authors |

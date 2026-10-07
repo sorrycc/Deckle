@@ -1,14 +1,17 @@
 import AppKit
 
-/// Settings: how the editor looks and behaves.
+/// Settings: how the editor looks and behaves, and how Deckle updates.
 final class SettingsWindowController: NSWindowController {
     init() {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
-        for (pane, title, symbol) in [
+        var panes: [(NSViewController, String, String)] = [
             (AppearancePane(), "Appearance", "paintpalette"),
             (EditorPane(), "Editor", "text.cursor"),
-        ] as [(NSViewController, String, String)] {
+        ]
+        // Dev builds have no feed to update from.
+        if Updater.isAvailable { panes.append((UpdatesPane(), "Updates", "arrow.triangle.2.circlepath")) }
+        for (pane, title, symbol) in panes {
             // The window takes the title of the pane it shows.
             pane.title = title
             let item = NSTabViewItem(viewController: pane)
@@ -312,4 +315,18 @@ final class EditorPane: NSViewController {
         Settings.lineHeight = (sender.doubleValue * 20).rounded() / 20
         refresh()
     }
+}
+
+final class UpdatesPane: NSViewController {
+    override func loadView() {
+        let automatic = NSButton(checkboxWithTitle: "Check for updates automatically", target: self, action: #selector(toggleAutomatic(_:)))
+        automatic.state = Updater.shared.automaticallyChecks ? .on : .off
+        let betas = NSButton(checkboxWithTitle: "Include beta versions", target: self, action: #selector(toggleBetas(_:)))
+        betas.state = Updater.includesBetas ? .on : .off
+        view = form([("Updates", automatic), ("", betas)])
+        preferredContentSize = view.fittingSize
+    }
+
+    @objc private func toggleAutomatic(_ sender: NSButton) { Updater.shared.automaticallyChecks = sender.state == .on }
+    @objc private func toggleBetas(_ sender: NSButton) { Updater.includesBetas = sender.state == .on }
 }
