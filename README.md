@@ -50,9 +50,9 @@ Run the core's tests with `cargo test --release`.
 Releases are signed with a Developer ID, notarized, and published on GitHub Releases. Installed copies update through [Sparkle](https://sparkle-project.org) from the appcast at `https://sorrycc.github.io/Deckle/appcast.xml`.
 
 1. Set `version` under `[workspace.package]` in `Cargo.toml` and commit. A version with a pre-release part, such as `0.2.0-beta.1`, is a beta: a GitHub pre-release that only copies with Settings > Updates > Include beta versions turned on are offered.
-2. Push a tag for it, `git tag v0.2.0 && git push origin master v0.2.0`, and GitHub Actions builds and publishes the release. Or run `scripts/release.sh` on a Mac with the certificate, the `deckle-notary` notarytool profile, and the Sparkle key in the keychain.
+2. Push a tag for it, `git tag v0.2.0 && git push origin main v0.2.0`, and GitHub Actions builds and publishes the release. Or run `scripts/release.sh` on a Mac with the certificate, the `deckle-notary` notarytool profile, and the Sparkle key in the keychain.
 
-`CFBundleVersion` is the commit count, so release from `master` only. `scripts/bundle.sh` writes the update feed only into Developer ID builds of the everyday bundle ID, so dev builds never update themselves.
+`CFBundleVersion` is the commit count, so release from `main` only. `scripts/bundle.sh` writes the update feed only into Developer ID builds of the everyday bundle ID, so dev builds never update themselves.
 
 ## Project layout
 
