@@ -13,7 +13,7 @@ final class OutlineRail: NSView {
     private var tickSpacing: CGFloat = 8
     /// The list as a card, made when the rail first opens: a glass view is
     /// dear, and most notes are read without one.
-    private var card: NSGlassEffectView?
+    private var card: GlassPane?
     /// The card as tall as its list; the cap on the rail's height wins over it.
     private var cardHeight: NSLayoutConstraint?
     private let list = NSStackView()
@@ -51,15 +51,13 @@ final class OutlineRail: NSView {
         list.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    private func makeCard() -> NSGlassEffectView {
+    private func makeCard() -> GlassPane {
         let scroll = NSScrollView()
         scroll.documentView = list
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        let card = NSGlassEffectView()
-        card.contentView = scroll
-        card.cornerRadius = 14
+        let card = GlassPane(cornerRadius: 14, content: scroll)
         card.isHidden = true
         card.translatesAutoresizingMaskIntoConstraints = false
         addSubview(card)

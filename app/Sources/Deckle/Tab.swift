@@ -201,7 +201,7 @@ final class PlaceholderView: NSView {
         stack.setCustomSpacing(14, after: icon)
         if url != nil {
             let button = NSButton(title: "Open in Default App", target: self, action: #selector(openExternally))
-            button.bezelStyle = .glass
+            button.bezelStyle = .glassOrRounded
             stack.addArrangedSubview(button)
             stack.setCustomSpacing(16, after: detailLabel)
         }

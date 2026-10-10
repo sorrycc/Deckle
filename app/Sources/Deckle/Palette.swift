@@ -91,9 +91,7 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
-        let glass = NSGlassEffectView()
-        glass.cornerRadius = 18
-        glass.contentView = content
+        let glass = GlassPane(cornerRadius: 18, content: content)
         panel.contentView = glass
         self.glass = glass
         field.setAccessibilityLabel("Quick Open")
@@ -119,7 +117,7 @@ final class Palette: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTab
         ])
     }
 
-    private weak var glass: NSGlassEffectView?
+    private weak var glass: GlassPane?
 
     var isShown: Bool { panel.isVisible }
 

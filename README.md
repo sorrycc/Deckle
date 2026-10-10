@@ -10,7 +10,7 @@
 
 Deckle pairs an AppKit interface with a Rust core. Notes are plain `.md` files in a folder you choose.
 
-> **Status:** early development. Deckle requires macOS 26 on Apple silicon. Download the DMG from [Releases](https://github.com/sorrycc/Deckle/releases), or build it from source. Installed copies update themselves.
+> **Status:** early development. Deckle requires macOS 15 or later on Apple silicon. Download the DMG from [Releases](https://github.com/sorrycc/Deckle/releases), or build it from source. Installed copies update themselves.
 
 ## Features
 
@@ -29,7 +29,7 @@ See the [user guide](docs/usage.md) for details.
 
 ## Requirements
 
-- macOS 26 with the Swift toolchain (Xcode Command Line Tools)
+- Xcode 26 or its Command Line Tools, for Swift 6.2 (they run on macOS 15.6 or later)
 - Rust, installed through [rustup](https://rustup.rs)
 
 ## Build and run

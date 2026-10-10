@@ -10,7 +10,7 @@ from email.utils import formatdate
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 ET.register_namespace("sparkle", SPARKLE)
 RELEASES = "https://github.com/sorrycc/Deckle/releases"
-MINIMUM_SYSTEM = "26.0"   # LSMinimumSystemVersion in scripts/bundle.sh
+MINIMUM_SYSTEM = "15.0"   # LSMinimumSystemVersion in scripts/bundle.sh
 
 def sp(name): return f"{{{SPARKLE}}}{name}"
 

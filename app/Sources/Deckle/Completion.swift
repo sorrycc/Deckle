@@ -52,15 +52,13 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
         scroll.autohidesScrollers = true
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentInsets = NSEdgeInsets(top: 5, left: 0, bottom: 5, right: 0)
-        let glass = NSGlassEffectView()
-        glass.cornerRadius = 12
-        glass.contentView = scroll
+        let glass = GlassPane(cornerRadius: 12, content: scroll)
         panel.contentView = glass
         self.glass = glass
         return panel
     }
 
-    private weak var glass: NSGlassEffectView?
+    private weak var glass: GlassPane?
 
     var isShown: Bool { panel?.isVisible ?? false }
 

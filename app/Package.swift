@@ -5,7 +5,7 @@ import PackageDescription
 // and passes its directory to the linker.
 let package = Package(
     name: "Deckle",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
     ],

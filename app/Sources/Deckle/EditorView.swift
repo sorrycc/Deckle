@@ -617,7 +617,7 @@ final class EditorView: NSView, NSTextViewDelegate, @preconcurrency NSTextStorag
     /// over the block.
     private lazy var copyButton: NSButton = {
         let button = NSButton(title: "Copy", image: Self.copyImage ?? NSImage(), target: self, action: #selector(copyBlock(_:)))
-        button.bezelStyle = .glass
+        button.bezelStyle = .glassOrRounded
         button.controlSize = .small
         button.font = .systemFont(ofSize: 11, weight: .medium)
         button.imagePosition = .imageLeading
