@@ -99,7 +99,9 @@ echo "==> $CURRENT -> $VERSION"
 sed -i '' "/^\[workspace.package\]/,/^\[/s/^version = \".*\"$/version = \"$VERSION\"/" Cargo.toml
 # Updates only the workspace's own crates in the lock file.
 cargo update --quiet --workspace
-if [ "$(git diff --name-only)" != "$(printf 'Cargo.lock\nCargo.toml')" ] \
+# Cargo.lock may already hold the new version when it fell behind Cargo.toml.
+CHANGED="$(git diff --name-only)"
+if { [ "$CHANGED" != Cargo.toml ] && [ "$CHANGED" != "$(printf 'Cargo.lock\nCargo.toml')" ]; } \
     || git diff -U0 Cargo.lock | grep '^[-+][^-+]' | grep -qv '^[-+]version = '; then
     echo "Expected only the versions in Cargo.toml and Cargo.lock to change:" >&2
     git diff --stat >&2
