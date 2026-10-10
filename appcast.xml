@@ -4,6 +4,15 @@
     <title>Deckle</title>
     <link>https://github.com/sorrycc/Deckle/releases</link>
     <item>
+      <title>0.1.0</title>
+      <pubDate>Sat, 10 Oct 2026 03:12:33 GMT</pubDate>
+      <sparkle:version>37</sparkle:version>
+      <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/sorrycc/Deckle/releases/tag/v0.1.0</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/sorrycc/Deckle/releases/download/v0.1.0/Deckle-0.1.0.zip" type="application/octet-stream" sparkle:edSignature="PN6lihwZf12qYDKwAaNhPh4AvnQil2GoBZn99Zs2VKh8GK9izI1ac+2vTYOXTa3dLyjmEWdXYxoT/69twysYBw==" length="20599009" />
+    </item>
+    <item>
       <title>0.1.0-beta.1</title>
       <pubDate>Wed, 07 Oct 2026 10:16:51 GMT</pubDate>
       <sparkle:version>31</sparkle:version>
