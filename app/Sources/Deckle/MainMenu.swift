@@ -32,6 +32,7 @@ enum MainMenu {
         let file = NSMenu()
         file.addItem(withTitle: "New Note", action: #selector(WindowController.newNote(_:)), keyEquivalent: "n")
         file.addItem(withTitle: "New Tab", action: #selector(WindowController.newTab(_:)), keyEquivalent: "t")
+        file.addItem(withTitle: "New Window", action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "N")
         file.addItem(withTitle: "Open…", action: #selector(AppDelegate.openFolder(_:)), keyEquivalent: "o")
         let recent = NSMenu()
         recent.delegate = NSApp.delegate as? NSMenuDelegate
@@ -191,6 +192,7 @@ enum MainMenu {
         "Settings…": "gear",
         "New Note": "square.and.pencil",
         "New Tab": "plus.square.on.square",
+        "New Window": "macwindow.badge.plus",
         "Open…": "folder",
         "Open Recent": "clock",
         "Quick Open…": "doc.text.magnifyingglass",

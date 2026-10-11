@@ -3,10 +3,22 @@ import CDeckleCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private var windowController: WindowController?
+    /// The workspace windows, in the order they opened.
+    private var controllers: [WindowController] = []
+    /// Windows opened from a launch argument or for a lone file's folder,
+    /// which the next launch doesn't open again.
+    private var unremembered: Set<ObjectIdentifier> = []
     /// Files and folders handed over before the app finished launching.
     private var pendingURLs: [URL] = []
     private var launched = false
+    /// Set once quitting is agreed, so windows closing as the app goes keep
+    /// their place among the workspaces to open again.
+    private var terminating = false
+
+    /// The workspace window nearest the front.
+    private var frontController: WindowController? {
+        NSApp.orderedWindows.lazy.compactMap { $0.windowController as? WindowController }.first ?? controllers.last
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Debug.mark("did finish launching")
@@ -22,23 +34,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launched = true
 
         let defaults = UserDefaults.standard
+        let existing = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
         if let path = defaults.string(forKey: "workspace") {
-            // A launch argument, which leaves the remembered workspace alone.
+            // A launch argument, which leaves the remembered workspaces alone.
             openWorkspace(URL(fileURLWithPath: path, isDirectory: true), remember: false)
         } else if !pendingURLs.isEmpty {
             pendingURLs.forEach(open)
             pendingURLs = []
-        } else if let last = Settings.lastWorkspace, FileManager.default.fileExists(atPath: last.path) {
+        } else if case let windows = Settings.openWorkspaces.filter(existing), !windows.isEmpty {
+            // Every window open at the last quit, the front one last.
+            windows.forEach { openWorkspace($0) }
+        } else if let last = Settings.lastWorkspace, existing(last) {
             openWorkspace(last)
         } else {
             showWelcome()
         }
         if defaults.bool(forKey: "welcome") { showWelcome() }
         Debug.mark("workspace window")
-        if let path = defaults.string(forKey: "open") { windowController?.open(URL(fileURLWithPath: path)) }
+        if let path = defaults.string(forKey: "open") { frontController?.open(URL(fileURLWithPath: path)) }
         Debug.mark("opened file")
         NSApp.activate()
-        Debug.runLaunchArguments(windowController)
+        Debug.runLaunchArguments(frontController)
     }
 
     @objc private func appearanceChanged(_ note: Notification) { applyAppearance() }
@@ -51,26 +67,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// do: the Dock icon or the Welcome window brings a workspace back.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// A click on the Dock icon with no window up reopens the workspace, or
-    /// offers one.
+    /// A click on the Dock icon with no window up brings the workspace
+    /// windows back, or offers one.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         guard !hasVisibleWindows else { return true }
-        if let controller = windowController {
-            controller.showWindow(nil)
-        } else {
+        if controllers.isEmpty {
             showWelcome()
+        } else {
+            controllers.forEach { $0.showWindow(nil) }
         }
         return false
     }
 
     /// A note whose edits can't be saved keeps the app open until the user
-    /// has said what to do with them.
+    /// has said what to do with them, in every window.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        windowController?.canClose() ?? true ? .terminateNow : .terminateCancel
+        guard controllers.allSatisfy({ $0.canClose() }) else { return .terminateCancel }
+        // The windows open again at launch as they were stacked: the front
+        // one last, and so in front.
+        let stacked = NSApp.orderedWindows.compactMap { $0.windowController as? WindowController }
+        controllers = controllers.filter { controller in !stacked.contains { $0 === controller } } + stacked.reversed()
+        rememberOpenWorkspaces()
+        terminating = true
+        return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        windowController?.saveAll()
+        controllers.forEach { $0.saveAll() }
     }
 
     /// The Dock's menu lists the workspaces opened before.
@@ -85,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillResignActive(_ notification: Notification) {
-        windowController?.tabs.forEach { $0.save() }
+        controllers.forEach { $0.tabs.forEach { $0.save() } }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -93,76 +116,120 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         urls.forEach(open)
     }
 
-    /// Opens a folder as the workspace. A file opens in a new tab of the
-    /// workspace window, wherever it lives, and leaves the workspace as it is.
+    /// Opens a folder as a workspace in a window of its own. A file opens in
+    /// a new tab of the window whose workspace holds it, or else of the front
+    /// one, wherever it lives, and leaves the workspace as it is.
     private func open(_ url: URL) {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return }
         if isDirectory.boolValue { return openWorkspace(url) }
         let file = url.resolvingSymlinksInPath()
         welcomeController?.close()
-        if windowController == nil {
+        var target = controllers.first { $0.contains(file) } ?? frontController
+        if target == nil {
             if let last = Settings.lastWorkspace, FileManager.default.fileExists(atPath: last.path) {
-                openWorkspace(last)
+                target = makeWindow(last)
             } else {
                 // No workspace to open it in: the file's folder, not
                 // remembered, so the next launch doesn't come back to it.
-                openWorkspace(file.deletingLastPathComponent(), remember: false)
+                target = makeWindow(file.deletingLastPathComponent(), remember: false)
             }
         }
-        windowController?.showWindow(nil)
-        windowController?.open(file, inNewTab: true)
+        target?.showWindow(nil)
+        target?.open(file, inNewTab: true)
     }
 
+    /// The window of the workspace at `url`, if one is open.
+    private func controller(for url: URL) -> WindowController? {
+        // Both sides resolved alike: the core's root keeps /private, which
+        // resolving takes off.
+        let path = url.resolvingSymlinksInPath().path
+        return controllers.first { $0.workspace.url.resolvingSymlinksInPath().path == path }
+    }
+
+    /// Brings the workspace's window forward, or opens one for it.
     func openWorkspace(_ url: URL, remember: Bool = true) {
         welcomeController?.close()
-        if let current = windowController {
-            if current.workspace.url.path == url.resolvingSymlinksInPath().path { return current.showWindow(nil) }
-            guard current.canClose() else { return }
-            windowController = nil
-            current.close()
-        }
-        let controller = WindowController(workspace: url)
-        controller.onSwitchWorkspace = { [weak self] url in
-            if let url { self?.openWorkspace(url) } else { self?.chooseWorkspace() }
-        }
-        // The window closed by hand: the Welcome window offers another.
-        controller.onClose = { [weak self, weak controller] in
-            guard let self, self.windowController === controller else { return }
-            self.windowController = nil
-            self.showWelcome()
-        }
-        windowController = controller
-        controller.showWindow(nil)
-        if remember { Settings.noteOpened(workspace: controller.workspace.url) }
+        if let current = controller(for: url) { return current.showWindow(nil) }
+        makeWindow(url, remember: remember)
     }
 
-    /// Asks for a folder to open as the workspace, or a file to open in a tab.
-    @objc func chooseWorkspace() {
+    /// The sidebar's switcher: another workspace in the same window, where
+    /// it was. A workspace open in a window of its own comes forward instead.
+    private func switchWorkspace(of current: WindowController, to url: URL) {
+        if let open = controller(for: url) { return open.showWindow(nil) }
+        guard current.canClose(), let index = controllers.firstIndex(where: { $0 === current }) else { return }
+        // The window that saves its frame hands the name on to the new one.
+        current.window?.setFrameAutosaveName("")
+        controllers.remove(at: index)
+        unremembered.remove(ObjectIdentifier(current))
+        makeWindow(url, frame: current.window?.frame, at: index)
+        current.close()
+    }
+
+    @discardableResult
+    private func makeWindow(_ url: URL, remember: Bool = true, frame: NSRect? = nil, at index: Int? = nil) -> WindowController {
+        let front = frontController?.window
+        let controller = WindowController(workspace: url, frame: frame)
+        // Each further window a step down and to the right of the front one.
+        if frame == nil, let front, let window = controller.window {
+            window.cascadeTopLeft(from: window.cascadeTopLeft(from: NSPoint(x: front.frame.minX, y: front.frame.maxY)))
+        }
+        controller.onSwitchWorkspace = { [weak self, weak controller] url in
+            guard let self, let controller else { return }
+            if let url { self.switchWorkspace(of: controller, to: url) } else { self.chooseWorkspace(for: controller) }
+        }
+        // The window closed by hand. With none left, the Welcome window
+        // offers another.
+        controller.onClose = { [weak self, weak controller] in
+            guard let self, !self.terminating, let index = self.controllers.firstIndex(where: { $0 === controller }) else { return }
+            self.controllers.remove(at: index)
+            self.rememberOpenWorkspaces()
+            if self.controllers.isEmpty { self.showWelcome() }
+        }
+        controllers.insert(controller, at: min(index ?? controllers.count, controllers.count))
+        if !remember { unremembered.insert(ObjectIdentifier(controller)) }
+        controller.showWindow(nil)
+        if remember { Settings.noteOpened(workspace: controller.workspace.url) }
+        rememberOpenWorkspaces()
+        return controller
+    }
+
+    private func rememberOpenWorkspaces() {
+        Settings.openWorkspaces = controllers.filter { !unremembered.contains(ObjectIdentifier($0)) }.map(\.workspace.url)
+    }
+
+    /// Asks for a folder to open as a workspace, or a file to open in a tab.
+    /// From a window's switcher, a folder replaces that window's workspace.
+    func chooseWorkspace(for current: WindowController? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.canCreateDirectories = true
         panel.prompt = "Open"
-        panel.message = "Choose a folder of notes to open as the workspace, or a file to open in a tab."
+        panel.message = current == nil
+            ? "Choose a folder of notes to open as a workspace, or a file to open in a tab."
+            : "Choose a folder of notes to open in this window, or a file to open in a tab."
         if panel.runModal() == .OK, let url = panel.url {
-            open(url)
-        } else if windowController == nil {
+            if let current, url.hasDirectoryPath { switchWorkspace(of: current, to: url) } else { open(url) }
+        } else if controllers.isEmpty {
             showWelcome()
         }
     }
 
     @objc func openFolder(_ sender: Any?) { chooseWorkspace() }
 
+    /// File > New Window: the Welcome window, to open another workspace.
+    @objc func newWindow(_ sender: Any?) { showWelcome() }
+
     /// Help > Deckle Help: the usage guide, in a tab of its own, read-only.
     @objc func showHelp(_ sender: Any?) {
         guard let url = Bundle.main.url(forResource: "Deckle Help", withExtension: "md") else { return }
-        if let controller = windowController {
+        if let controller = frontController {
             controller.showWindow(nil)
             controller.open(url, inNewTab: true)
         } else if let last = Settings.lastWorkspace, FileManager.default.fileExists(atPath: last.path) {
-            openWorkspace(last)
-            windowController?.open(url, inNewTab: true)
+            makeWindow(last).open(url, inNewTab: true)
         } else {
             NSWorkspace.shared.open(url)
         }
@@ -205,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// File > Open Recent lists the workspaces opened before.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let current = windowController?.workspace.url.path
+        let open = Set(controllers.map(\.workspace.url.path))
         let recents = Settings.recentWorkspaces.filter { FileManager.default.fileExists(atPath: $0.path) }
         for url in recents {
             let item = menu.addItem(withTitle: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
@@ -213,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.representedObject = url
             item.toolTip = url.path
             item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-            item.state = url.path == current ? .on : .off
+            item.state = open.contains(url.path) ? .on : .off
         }
         if recents.isEmpty {
             menu.addItem(withTitle: "No Recent Workspaces", action: nil, keyEquivalent: "")
@@ -229,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func clearRecents(_ sender: Any?) {
-        Settings.recentWorkspaces = windowController.map { [$0.workspace.url] } ?? []
+        Settings.recentWorkspaces = controllers.map(\.workspace.url)
         welcomeController?.reload()
     }
 

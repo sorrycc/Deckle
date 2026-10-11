@@ -2,7 +2,7 @@
 
 ## Workspaces
 
-A workspace is a folder. Open one with File > Open… (⌘O), from File > Open Recent, by dropping a folder on the app or the Welcome window, or from the switcher at the bottom of the sidebar. A file opened the same ways, or with Finder's Open With, opens in a new tab of the workspace window, even when it lives outside the workspace, and leaves the workspace as it is. With no workspace open, Deckle opens the last one, or else the file's own folder without adding it to the recent workspaces. Deckle reopens the last workspace, its tabs and where you were in each note at launch; when there is none, a Welcome window (⇧⌘1) offers a folder to open and the workspaces opened before, which a right-click or Delete takes off the list. Closing the workspace window brings the Welcome window back, and the Dock icon's menu lists recent workspaces. Hidden files and `node_modules` folders are left out.
+A workspace is a folder, and each workspace has a window of its own, all in one app with one Dock icon. Open one with File > Open… (⌘O), from File > Open Recent or the Dock icon's menu, or by dropping a folder on the app or the Welcome window; a workspace already open comes to the front instead. File > New Window (⇧⌘N) shows the Welcome window to pick another. The switcher at the bottom of the sidebar opens a workspace in place of the window's own. A file opened the same ways, or with Finder's Open With, opens in a new tab of the window whose workspace holds it, or else of the front window, and leaves the workspace as it is. With no workspace open, Deckle opens the last one, or else the file's own folder without adding it to the recent workspaces. Deckle reopens the workspaces that were open when it quit, their tabs and where you were in each note; when there are none, a Welcome window (⇧⌘1) offers a folder to open and the workspaces opened before, which a right-click or Delete takes off the list. Closing the last workspace window brings the Welcome window back. Hidden files and `node_modules` folders are left out.
 
 Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). The workspace's own row, at the top of the tree, lists every note. Clicking empty space in the tree, ⌘-clicking the selected row or pressing Escape goes back to it. Titles sort as a person reads them, so "Note 2" comes before "Note 10". Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
 
@@ -84,7 +84,7 @@ For trying the app from a script:
 
 | Argument | Effect |
 |---|---|
-| `-workspace <folder>` | Opens this folder, without remembering it as the last workspace |
+| `-workspace <folder>` | Opens this folder alone, without remembering it among the workspaces to reopen |
 | `-open <file>` | Opens this file in a tab |
 | `-select <loc,len>` | Selects this range of the open file, in UTF-16 units |
 | `-scroll <fraction>` | Scrolls this far down the open file, from 0 to 1 |

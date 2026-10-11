@@ -7,6 +7,11 @@ beta shows what `## Unreleased` holds at the time.
 
 ## Unreleased
 
+- Each workspace opens in a window of its own, so several folders can be
+  open at once in one app. File > New Window (⇧⌘N) picks another, the
+  sidebar's switcher still replaces the window's workspace, and every
+  window open at quit comes back at launch.
+
 ## 0.1.0
 
 The first release of Deckle, a native Markdown editor for macOS 15 or later

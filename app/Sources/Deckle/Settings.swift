@@ -130,6 +130,13 @@ enum Settings {
         set { defaults.set(newValue?.path, forKey: "lastWorkspace") }
     }
 
+    /// The workspaces with a window open, the front one last, to open again
+    /// at launch.
+    static var openWorkspaces: [URL] {
+        get { (defaults.stringArray(forKey: "openWorkspaces") ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) } }
+        set { defaults.set(newValue.map(\.path), forKey: "openWorkspaces") }
+    }
+
     /// Workspaces opened before, newest first.
     static var recentWorkspaces: [URL] {
         get { (defaults.stringArray(forKey: "recentWorkspaces") ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) } }

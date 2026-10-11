@@ -7,7 +7,8 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     TabStripDelegate, EditorViewDelegate, FileTreeDelegate, NoteListDelegate
 {
     let workspace: Workspace
-    /// Asks the app for another workspace; nil lets the user choose a folder.
+    /// Asks the app for another workspace in this window; nil lets the user
+    /// choose a folder.
     var onSwitchWorkspace: ((URL?) -> Void)?
     /// The window was closed.
     var onClose: (() -> Void)?
@@ -33,7 +34,9 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
     private let searchButton = NSButton()
     private var wordCountPending = false
 
-    init(workspace url: URL) {
+    /// `frame` places the window where another was, as when the switcher
+    /// replaces a workspace; without one it opens where the last window was.
+    init(workspace url: URL, frame: NSRect? = nil) {
         workspace = Workspace(url: url)
         Debug.mark("workspace opened")
         tree = FileTreeController(workspace: workspace)
@@ -72,9 +75,15 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         split.addSplitViewItem(paneItem)
         split.splitView.autosaveName = "DeckleSplit"
         // Where the window was last: known before its columns are laid out,
-        // so they are laid out once, at their final size.
+        // so they are laid out once, at their final size. Only one window
+        // at a time can save under the name; the others take its size and
+        // the app cascades them.
         window.setFrameAutosaveName("DeckleWindow")
-        if !window.setFrameUsingName("DeckleWindow") { window.center() }
+        if let frame {
+            window.setFrame(frame, display: false)
+        } else if !window.setFrameUsingName("DeckleWindow") {
+            window.center()
+        }
         // The split view is laid out at the window's own size before it
         // becomes the content view: from a zero frame, the first layout
         // would find no room for three columns.
@@ -409,8 +418,6 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         setListCollapsed(!listItem.isCollapsed)
     }
 
-    @objc func openFolder(_ sender: Any?) { onSwitchWorkspace?(nil) }
-
     @objc func revealInFinder(_ sender: Any?) {
         NSWorkspace.shared.activateFileViewerSelecting([selectedTab.url ?? workspace.url])
     }
@@ -657,6 +664,11 @@ final class WindowController: NSWindowController, NSWindowDelegate, NSToolbarDel
         if tree.isViewLoaded, responder.isDescendant(of: tree.view) { return false }
         if list.isViewLoaded, responder.isDescendant(of: list.view) { return false }
         return true
+    }
+
+    /// Whether `url` is the workspace's folder or inside it.
+    func contains(_ url: URL) -> Bool {
+        Self.isAt(url.resolvingSymlinksInPath(), orUnder: workspace.url.resolvingSymlinksInPath())
     }
 
     private static func isAt(_ url: URL, orUnder folder: URL) -> Bool {
