@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""appcast.py <appcast.xml> <version> <build> <url> <sign_update output> [channel]
+"""appcast.py <appcast.xml> <version> <build> <url> <sign_update output> <notes.md> [channel]
 
 Adds a release to the Sparkle appcast, newest first, creating the file if it
-doesn't exist. Run by scripts/release.sh."""
-import os, re, sys
+doesn't exist. <notes.md> holds the release's notes from CHANGELOG.md, which
+the update window shows; an empty file leaves them out. Run by
+scripts/release.sh."""
+import html, os, re, sys
 import xml.etree.ElementTree as ET
 from email.utils import formatdate
 
@@ -14,7 +16,25 @@ MINIMUM_SYSTEM = "15.0"   # LSMinimumSystemVersion in scripts/bundle.sh
 
 def sp(name): return f"{{{SPARKLE}}}{name}"
 
-def main(path, version, build, url, signature, channel=""):
+def inline(text):
+    text = html.escape(text, quote=False)
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    return re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", lambda m: f'<a href="{html.escape(m[2])}">{m[1]}</a>', text)
+
+def notes_html(markdown):
+    """The little Markdown CHANGELOG.md uses, paragraphs and "- " lists with
+    wrapped lines, as the HTML Sparkle's update window shows."""
+    blocks = []
+    for block in re.split(r"\n\s*\n", markdown.strip()):
+        items = re.split(r"^- ", block, flags=re.M)
+        if items[0].strip():
+            blocks.append(f"<p>{inline(' '.join(items[0].split()))}</p>")
+        if len(items) > 1:
+            blocks.append("<ul>" + "".join(f"<li>{inline(' '.join(i.split()))}</li>" for i in items[1:]) + "</ul>")
+    return "\n".join(blocks)
+
+def main(path, version, build, url, signature, notes, channel=""):
     fields = dict(re.findall(r'(sparkle:edSignature|length)="([^"]+)"', signature))
     if len(fields) != 2: sys.exit(f"can't read sign_update output: {signature}")
     if os.path.exists(path):
@@ -34,6 +54,8 @@ def main(path, version, build, url, signature, channel=""):
     ET.SubElement(item, sp("shortVersionString")).text = version
     ET.SubElement(item, sp("minimumSystemVersion")).text = MINIMUM_SYSTEM
     ET.SubElement(item, sp("fullReleaseNotesLink")).text = f"{RELEASES}/tag/v{version}"
+    with open(notes) as f: description = notes_html(f.read())
+    if description: ET.SubElement(item, "description").text = description
     if channel: ET.SubElement(item, sp("channel")).text = channel
     ET.SubElement(item, "enclosure", {"url": url, "type": "application/octet-stream",
         sp("edSignature"): fields["sparkle:edSignature"], "length": fields["length"]})
@@ -42,5 +64,5 @@ def main(path, version, build, url, signature, channel=""):
     ET.indent(tree); tree.write(path, encoding="utf-8", xml_declaration=True)
 
 if __name__ == "__main__":
-    if len(sys.argv) not in (6, 7): sys.exit(__doc__)
+    if len(sys.argv) not in (7, 8): sys.exit(__doc__)
     main(*sys.argv[1:])

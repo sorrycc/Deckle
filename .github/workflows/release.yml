@@ -12,6 +12,13 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # the build number counts every commit
+      - name: Check CHANGELOG.md has the release's notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            *-*) ;; # A beta shows "## Unreleased", which may be empty.
+            *) grep -qxF "## $version" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; } ;;
+          esac
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: actions/cache@v4

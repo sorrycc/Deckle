@@ -12,11 +12,17 @@
 #   beta                       the next beta (0.1.0-beta.1 -> 0.1.0-beta.2,
 #                              0.1.0 -> 0.1.1-beta.1)
 #   prepatch, preminor, premajor   the first beta of the next patch, minor or major
+#
+# A release turns the "## Unreleased" section of CHANGELOG.md into
+# "## <version>" in the same commit, with an empty "## Unreleased" above it,
+# unless a "## <version>" section is there already: the update window and the
+# GitHub release show it, and the release fails without it. A beta leaves
+# CHANGELOG.md alone and shows what "## Unreleased" holds.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ $# -ne 1 ]; then
-    sed -n '2,15s/^# \{0,1\}//p' "$0" >&2
+    sed -n '2,21s/^# \{0,1\}//p' "$0" >&2
     exit 1
 fi
 
@@ -94,27 +100,58 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     echo "Release $TAG exists already." >&2
     exit 1
 fi
+ADD_SECTION=
+if [[ "$VERSION" != *-* ]] && ! grep -qxF "## $VERSION" CHANGELOG.md; then
+    if ! /usr/bin/python3 - <<'EOF'
+import re, sys
+text = open("CHANGELOG.md").read()
+m = re.search(r"^## Unreleased\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+sys.exit(0 if m and m.group(1).strip() else 1)
+EOF
+    then
+        echo "CHANGELOG.md has no \"## $VERSION\" section, nor an \"## Unreleased\" one with notes. Add one and commit it first." >&2
+        exit 1
+    fi
+    ADD_SECTION=1
+fi
 
 echo "==> $CURRENT -> $VERSION"
 sed -i '' "/^\[workspace.package\]/,/^\[/s/^version = \".*\"$/version = \"$VERSION\"/" Cargo.toml
 # Updates only the workspace's own crates in the lock file.
 cargo update --quiet --workspace
+FILES=(Cargo.lock Cargo.toml)
+if [ -n "$ADD_SECTION" ]; then
+    # The notes under "## Unreleased" become the version's, and a new empty
+    # "## Unreleased" waits above them for the next release's.
+    /usr/bin/python3 - "$VERSION" <<'EOF'
+import re, sys
+with open("CHANGELOG.md") as f:
+    text = f.read()
+text = re.sub(r"^## Unreleased\n", f"## Unreleased\n\n## {sys.argv[1]}\n", text, count=1, flags=re.M)
+with open("CHANGELOG.md", "w") as f:
+    f.write(text)
+EOF
+    FILES=(CHANGELOG.md "${FILES[@]}")
+fi
 # Cargo.lock may already hold the new version when it fell behind Cargo.toml.
 CHANGED="$(git diff --name-only)"
-if { [ "$CHANGED" != Cargo.toml ] && [ "$CHANGED" != "$(printf 'Cargo.lock\nCargo.toml')" ]; } \
-    || git diff -U0 Cargo.lock | grep '^[-+][^-+]' | grep -qv '^[-+]version = '; then
-    echo "Expected only the versions in Cargo.toml and Cargo.lock to change:" >&2
+if { [ "$CHANGED" != "$(printf '%s\n' "${FILES[@]}" | grep -vx Cargo.lock)" ] \
+        && [ "$CHANGED" != "$(printf '%s\n' "${FILES[@]}")" ]; } \
+    || git diff -U0 Cargo.lock | grep '^[-+][^-+]' | grep -qv '^[-+]version = ' \
+    || { [ -n "$ADD_SECTION" ] \
+        && [ "$(git diff -U0 CHANGELOG.md | grep '^[-+]' | grep -v '^\(---\|+++\) ' | sort)" != "$(printf '+\n+## %s' "$VERSION")" ]; }; then
+    echo "Expected only the versions in ${FILES[*]} to change:" >&2
     git diff --stat >&2
     echo "Undo with: git checkout -- ." >&2
     exit 1
 fi
-git commit --quiet -m "$TAG" Cargo.toml Cargo.lock
+git commit --quiet -m "$TAG" "${FILES[@]}"
 git tag "$TAG"
 git --no-pager log -1 --stat --format='%h %s' "$TAG"
 
 read -r -p "Push main and $TAG to origin, which publishes the release? [y/N] " answer || echo
 if [[ "$answer" != [yY]* ]]; then
-    echo "Not pushed. Push later with: git push origin main $TAG"
+    echo "Not pushed. Push later with: git push --atomic origin main $TAG"
     echo "Or undo with: git tag -d $TAG && git reset --hard HEAD~1"
     exit 0
 fi

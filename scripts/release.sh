@@ -6,6 +6,8 @@
 # when set, else the keychain profile NOTARY_PROFILE (default: deckle-notary).
 # The update is signed with SPARKLE_PRIVATE_KEY when set, else the key under
 # the keychain account `deckle` (generate_keys --account deckle).
+# The release notes, on GitHub and in the update window, come from
+# CHANGELOG.md: the version's section, or for a beta "## Unreleased".
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,6 +27,17 @@ CHANNEL=""; PRERELEASE=()
 [ -n "${GITHUB_REF_NAME:-}" ] || [ -n "$(git -C "$ROOT" branch -r --contains HEAD)" ] || { echo "Push HEAD first: the release is tagged on GitHub." >&2; exit 1; }
 gh release view "$TAG" >/dev/null 2>&1 && { echo "$TAG exists." >&2; exit 1; }
 
+# A release must have its own section; a beta's "## Unreleased" may be empty.
+NOTES="$(/usr/bin/python3 - "$ROOT/CHANGELOG.md" "${CHANNEL:+Unreleased}" "$VERSION" <<'EOF'
+import re, sys
+path, heading = sys.argv[1], sys.argv[2] or sys.argv[3]
+m = re.search(rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)", open(path).read(), re.M | re.S)
+if not m and heading != "Unreleased":
+    sys.exit(f"CHANGELOG.md has no ## {heading} section. Add it and commit it first.")
+print(m.group(1).strip() if m else "")
+EOF
+)"
+
 if [ -n "${APPLE_ID:-}" ]; then
     notary_auth=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
 else
@@ -37,6 +50,7 @@ DIST="$ROOT/build/dist"; APP="$ROOT/build/Deckle.app"
 DMG="$DIST/Deckle-$VERSION.dmg"; ZIP="$DIST/Deckle-$VERSION.zip"
 echo "==> making $DMG"
 rm -rf "$DIST"; mkdir -p "$DIST/dmg"
+NOTES_FILE="$DIST/notes.md"; printf '%s\n' "$NOTES" > "$NOTES_FILE"
 ditto "$APP" "$DIST/dmg/Deckle.app"; ln -s /Applications "$DIST/dmg/Applications"
 hdiutil create -quiet -volname Deckle -srcfolder "$DIST/dmg" -format UDZO "$DMG"
 codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG"
@@ -69,8 +83,11 @@ fi
 # The release goes up before the appcast, so no client sees an item whose
 # zip isn't there yet.
 echo "==> publishing $TAG"
+# A beta with nothing under "## Unreleased" lists its pull requests instead.
+notes_args=(--generate-notes)
+[ -z "$NOTES" ] || notes_args=(--notes-file "$NOTES_FILE")
 gh release create "$TAG" "$DMG" "$ZIP" --target "$(git -C "$ROOT" rev-parse HEAD)" \
-    --title "Deckle $VERSION" --generate-notes ${PRERELEASE[@]+"${PRERELEASE[@]}"}
+    --title "Deckle $VERSION" "${notes_args[@]}" ${PRERELEASE[@]+"${PRERELEASE[@]}"}
 
 # The new appcast goes onto gh-pages with plumbing, so nothing is checked out.
 echo "==> updating the appcast"
@@ -82,7 +99,7 @@ if git -C "$ROOT" rev-parse --verify --quiet origin/gh-pages >/dev/null; then
     entries="$(git -C "$ROOT" ls-tree origin/gh-pages | grep -v $'\tappcast.xml$' || true)"
 fi
 URL="https://github.com/sorrycc/Deckle/releases/download/$TAG/Deckle-$VERSION.zip"
-/usr/bin/python3 "$ROOT/scripts/appcast.py" "$APPCAST" "$VERSION" "$BUILD" "$URL" "$signature" $CHANNEL
+/usr/bin/python3 "$ROOT/scripts/appcast.py" "$APPCAST" "$VERSION" "$BUILD" "$URL" "$signature" "$NOTES_FILE" $CHANNEL
 blob="$(git -C "$ROOT" hash-object -w "$APPCAST")"
 tree="$(printf '%s\n100644 blob %s\tappcast.xml\n' "$entries" "$blob" | sed '/^$/d' | git -C "$ROOT" mktree)"
 commit="$(git -C "$ROOT" commit-tree "$tree" ${parent[@]+"${parent[@]}"} -m "Add Deckle $VERSION to the appcast")"
