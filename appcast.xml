@@ -4,6 +4,16 @@
     <title>Deckle</title>
     <link>https://github.com/sorrycc/Deckle/releases</link>
     <item>
+      <title>0.1.1</title>
+      <pubDate>Mon, 12 Oct 2026 10:55:21 GMT</pubDate>
+      <sparkle:version>42</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/sorrycc/Deckle/releases/tag/v0.1.1</sparkle:fullReleaseNotesLink>
+      <description>&lt;ul&gt;&lt;li&gt;Each workspace opens in a window of its own, so several folders can be open at once in one app. File &amp;gt; New Window (⇧⌘N) picks another, the sidebar's switcher still replaces the window's workspace, and every window open at quit comes back at launch.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/sorrycc/Deckle/releases/download/v0.1.1/Deckle-0.1.1.zip" type="application/octet-stream" sparkle:edSignature="7XWMBDEE4JjGRaZ+QlX3Sg9aA3fpfA6yEwi6WtSnZvoJaUBBoQSTczPb8TOaiWgWVzwzT/E5KW8unWhkp2lICQ==" length="20606342" />
+    </item>
+    <item>
       <title>0.1.0</title>
       <pubDate>Sat, 10 Oct 2026 03:12:33 GMT</pubDate>
       <sparkle:version>37</sparkle:version>
