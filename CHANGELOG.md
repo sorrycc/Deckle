@@ -7,6 +7,8 @@ beta shows what `## Unreleased` holds at the time.
 
 ## Unreleased
 
+## 0.1.1
+
 - Each workspace opens in a window of its own, so several folders can be
   open at once in one app. File > New Window (⇧⌘N) picks another, the
   sidebar's switcher still replaces the window's workspace, and every
