@@ -57,6 +57,7 @@ func (ww *welcomeWindow) close() {
 func (ww *welcomeWindow) view(c *ui.Context) {
 	a := ww.a
 	th := currentTheme(c, a.s.Prefs().Theme)
+	useTheme(c, th)
 	recent := a.s.Recent()
 	ui.Row(c).Fill().Background(th.Background).TextColor(th.Text).AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c.Key("brand")).Width(300).Padding(56, 32, 32, 32).Gap(14).AlignItems(ui.Center).DragWindow().Children(func() {

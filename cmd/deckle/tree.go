@@ -97,6 +97,15 @@ func (t *tree) folderChanged(dir string) {
 
 func (t *tree) reloadAll() { clear(t.children) }
 
+// reveal opens the folders that hold path, so the tree shows the note
+// the editor does.
+func (t *tree) reveal(path string) {
+	root := t.w.root
+	for dir := filepath.Dir(path); len(dir) > len(root) && strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {
+		t.expanded[dir] = true
+	}
+}
+
 func (t *tree) view(c *ui.Context, th theme.Theme) {
 	w := t.w
 	bar := c.TitleBar()
@@ -152,14 +161,19 @@ func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth i
 		selected = cur.path == path
 	}
 	r := ui.Row(c.Key(key)).Height(28).Padding(0, 8, 0, 6+float32(depth)*16).Gap(6).Radius(7).AlignItems(ui.Center).Cursor(ui.CursorDefault)
-	if selected {
+	// The note open is marked in the accent; the folder the list shows,
+	// which is often an ancestor of it, more quietly.
+	switch {
+	case selected && !dir:
 		r.Background(th.Accent.Alpha(0.16))
-	} else if r.Hovered() {
-		r.Background(th.Text.Alpha(0.05))
+	case selected:
+		r.Background(th.Text.Alpha(0.07))
+	case r.Hovered():
+		r.Background(th.Text.Alpha(0.045))
 	}
 	name := filepath.Base(path)
 	if isRoot {
-		name = w.name
+		name = "All Notes"
 	} else if !dir && workspace.IsMarkdown(path) {
 		name = strings.TrimSuffix(name, filepath.Ext(name))
 	}
@@ -225,7 +239,7 @@ func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth i
 			ic = iconFile
 		}
 		color := th.Secondary
-		if selected {
+		if selected || isRoot {
 			color = th.Accent
 		}
 		ui.Icon(c, ic).FontSize(15).TextColor(color)
@@ -247,7 +261,10 @@ func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth i
 			}
 			return
 		}
-		ui.Text(c, name).SingleLine().FontSize(13).Grow(1).TextColor(th.Text)
+		label := ui.Text(c, name).SingleLine().FontSize(13).Grow(1).TextColor(th.Text)
+		if selected {
+			label.FontWeight(600)
+		}
 	})
 }
 
@@ -344,8 +361,12 @@ func (t *tree) finishRename() {
 // workspace in the window.
 func (t *tree) switcher(c *ui.Context, th theme.Theme) {
 	w := t.w
-	ui.Row(c.Key("switcher-row")).Padding(8, 10).Children(func() {
-		b := ui.MenuButton(c, w.name, func(m *ui.Menu) {
+	ui.Column(c.Key("switcher-row")).Padding(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		b := ui.ButtonBase(c.Key("switcher")).Label("Workspace").Height(40).Padding(0, 8).Radius(8).FocusRing(false)
+		if b.Hovered() || b.Pressed() {
+			b.Background(th.Text.Alpha(0.06))
+		}
+		b.Menu(func(m *ui.Menu) {
 			for _, dir := range w.a.s.Recent() {
 				if dir == w.root {
 					continue
@@ -356,12 +377,32 @@ func (t *tree) switcher(c *ui.Context, th theme.Theme) {
 				}
 			}
 			m.Separator()
-			if m.Item("Open…").Chosen() {
+			if m.Item("Open Folder…").Chosen() {
 				w.a.chooseWorkspace(w.w, w)
 			}
 		})
-		b.FontSize(12.5)
+		b.Children(func() {
+			ui.Row(c).Fill().Gap(9).AlignItems(ui.Center).Children(func() {
+				// The workspace's initial on a tile of the accent.
+				ui.Box(c).Size(24, 24).Radius(6).Center().Background(th.Accent).Children(func() {
+					ui.Text(c, initial(w.name)).FontSize(12).Bold().TextColor(th.OnAccent())
+				})
+				ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+					ui.Text(c, w.name).FontSize(12.5).Bold().SingleLine().TextColor(th.Text)
+					ui.Text(c, shortenHome(filepath.Dir(w.root))).FontSize(10.5).SingleLine().TextColor(th.Secondary)
+				})
+				ui.Icon(c, iconUpDown).FontSize(13).TextColor(th.Secondary)
+			})
+		})
 	})
+}
+
+// initial is the first letter of a name, as a capital.
+func initial(name string) string {
+	for _, r := range name {
+		return strings.ToUpper(string(r))
+	}
+	return "?"
 }
 
 func shortenHome(p string) string {

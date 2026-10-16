@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"unicode"
 
 	"deckle/internal/editor"
@@ -26,6 +27,22 @@ func currentTheme(c *ui.Context, id string) theme.Theme {
 	return theme.Resolve(id, t.Dark, t.Accent)
 }
 
+// useTheme gives the controls of a view the colors of th: buttons, check
+// boxes, inputs and the focus ring in its accent, on its page.
+func useTheme(c *ui.Context, th theme.Theme) {
+	t := *c.Theme()
+	t.Accent = th.Accent
+	t.AccentHover = th.Accent.Mix(th.Text, 0.12)
+	t.AccentPressed = th.Accent.Mix(th.Text, 0.24)
+	t.AccentText = th.OnAccent()
+	t.Focus = th.Accent.Alpha(0.5)
+	t.Selection = th.Selection
+	t.Background = th.Background
+	t.Text = th.Text
+	t.TextMuted = th.Secondary
+	c.SetTheme(&t)
+}
+
 // lookOf is how editors show text, from the settings.
 func (a *deckle) lookOf(th theme.Theme) editor.Look {
 	p := a.s.Prefs()
@@ -44,6 +61,7 @@ func (w *window) view(c *ui.Context) {
 	th := currentTheme(c, w.a.s.Prefs().Theme)
 	w.theme = th
 	w.look = w.a.lookOf(th)
+	useTheme(c, th)
 	w.shortcuts(c)
 	root := ui.Box(c).Fill().Background(th.Background).TextColor(th.Text)
 	root.Children(func() {
@@ -75,7 +93,9 @@ func titleBarHeight() float32 { return 52 }
 func (w *window) pane(c *ui.Context, th theme.Theme) {
 	ui.Column(c.Key("pane")).Fill().Background(th.Background).Children(func() {
 		w.tabBar(c, th)
-		ui.Box(c.Key("content")).Grow(1).Children(func() {
+		// Basis 0 and no minimum, so a note longer than the pane leaves the
+		// status bar its room instead of running under it.
+		ui.Box(c.Key("content")).Grow(1).Basis(0).MinHeight(0).Clip().Children(func() {
 			w.content(c, th)
 		})
 		w.statusBar(c, th)
@@ -229,17 +249,66 @@ func (w *window) content(c *ui.Context, th theme.Theme) {
 }
 
 func (w *window) emptyTab(c *ui.Context, th theme.Theme) {
-	ui.Column(c).Fill().Center().Gap(10).Children(func() {
-		ui.Text(c, "No Note Selected").FontSize(15).Bold().TextColor(th.Secondary)
-		ui.Row(c).Gap(8).Children(func() {
-			if ui.Button(c, "New Note").Clicked() {
-				w.newNote()
-			}
-			if ui.Button(c, "Quick Open").Clicked() {
-				w.palette.show(modeFiles, "")
+	ui.Column(c).Fill().Center().Padding(24).Children(func() {
+		ui.Column(c).Width(300).Gap(4).Children(func() {
+			ui.Box(c).Size(52, 52).Radius(14).Center().Background(th.Accent.Alpha(0.12)).AlignSelf(ui.Center).Children(func() {
+				ui.Icon(c, iconNote).FontSize(24).TextColor(th.Accent)
+			})
+			ui.Text(c, "No Note Open").FontSize(17).Bold().TextColor(th.Text).AlignSelf(ui.Center).Margin(14, 0, 2, 0)
+			ui.Text(c, w.name+" · "+itoa(len(w.list.notes))+" notes").FontSize(12.5).TextColor(th.Secondary).AlignSelf(ui.Center).Margin(0, 0, 18, 0)
+			for _, s := range []struct{ id, title, accel string }{
+				{"newNote", "New Note", "CmdOrCtrl+N"},
+				{"quickOpen", "Open a Note", "CmdOrCtrl+P"},
+				{"searchNotes", "Search Notes", "CmdOrCtrl+Shift+F"},
+				{"commands", "Commands", "CmdOrCtrl+Shift+P"},
+			} {
+				r := ui.Row(c.Key("hint-"+s.id)).Height(34).Padding(0, 10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorDefault)
+				if r.Hovered() {
+					r.Background(th.Text.Alpha(0.05))
+				}
+				if r.Clicked() {
+					id := s.id
+					w.post(func() { w.run(id) })
+				}
+				r.Children(func() {
+					ui.Text(c, s.title).FontSize(13).TextColor(th.Text).Grow(1)
+					keycaps(c, th, keysLabel(s.accel))
+				})
 			}
 		})
 	})
+}
+
+// keycaps shows a shortcut's keys, each on a cap.
+func keycaps(c *ui.Context, th theme.Theme, keys string) {
+	ui.Row(c).Gap(3).Children(func() {
+		for _, k := range splitKeys(keys) {
+			ui.Box(c).MinWidth(20).Height(20).Padding(0, 5).Radius(5).Center().
+				Background(th.Text.Alpha(0.05)).Border(1, th.Border).Children(func() {
+				ui.Text(c, k).FontSize(11).TextColor(th.Secondary)
+			})
+		}
+	})
+}
+
+// splitKeys splits a shortcut's label into its keys: "⇧⌘F" into ⇧, ⌘ and
+// F; "Ctrl+Shift+F" at its pluses.
+func splitKeys(keys string) []string {
+	if strings.Contains(keys, "+") && len(keys) > 1 {
+		return strings.Split(keys, "+")
+	}
+	var out []string
+	rs := []rune(keys)
+	for i, r := range rs {
+		if strings.ContainsRune("⌘⌃⇧⌥", r) || i == len(rs)-1 {
+			out = append(out, string(r))
+			continue
+		}
+		// A key with a name of several letters, as Tab.
+		out = append(out, string(rs[i:]))
+		break
+	}
+	return out
 }
 
 // statusBar shows how many notes link to this one, where the caret is,

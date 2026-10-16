@@ -384,6 +384,7 @@ func (a *deckle) switchWorkspace(w *window, dir string) {
 }
 
 func (a *deckle) prefsChanged() {
+	systemChinese = ""
 	registerFonts(a.s.Prefs().CJKFontFamily)
 	a.applyAppearance()
 	for _, w := range a.wins {

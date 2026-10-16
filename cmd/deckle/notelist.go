@@ -60,7 +60,7 @@ func (l *noteList) view(c *ui.Context, th theme.Theme) {
 	if l.stale || l.byWhat != w.a.s.Prefs().SortsNotesByTitle {
 		l.refresh()
 	}
-	title := w.name
+	title := "All Notes"
 	if l.folder != "" {
 		title = filepath.Base(l.folder)
 	}
@@ -71,9 +71,11 @@ func (l *noteList) view(c *ui.Context, th theme.Theme) {
 				w.newNote()
 			}
 		})
-		ui.Row(c.Key("list-head")).Padding(4, 16, 10, 24).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, title).Bold().FontSize(15).SingleLine()
-			ui.Text(c, itoa(len(l.notes))).FontSize(12).TextColor(th.Secondary)
+		ui.Row(c.Key("list-head")).Padding(0, 14, 10, 24).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, title).Bold().FontSize(16).SingleLine().MinWidth(0)
+			ui.Box(c).Padding(1, 7).Radius(999).Background(th.Text.Alpha(0.06)).Children(func() {
+				ui.Text(c, itoa(len(l.notes))).FontSize(11).FontWeight(600).TextColor(th.Secondary)
+			})
 			ui.Box(c).Grow(1)
 			ic, tip := iconClock, "Sorted by Date"
 			if l.byWhat {
@@ -97,8 +99,10 @@ func (l *noteList) view(c *ui.Context, th theme.Theme) {
 			}
 		}
 		list := ui.List(c.Key("notes"), &l.state, len(l.notes), func(i int) {
-			l.row(c, th, l.notes[i], l.notes[i] == cur)
-		}).Grow(1).Padding(0, 12, 12, 12)
+			// A hairline parts rows, but not around the one selected.
+			rule := i+1 < len(l.notes) && l.notes[i+1] != cur && l.notes[i] != cur
+			l.row(c, th, l.notes[i], l.notes[i] == cur, rule)
+		}).Grow(1).Padding(0, 10, 12, 10)
 		if l.focus {
 			list.Focus()
 			l.focus = false
@@ -118,14 +122,15 @@ func (l *noteList) view(c *ui.Context, th theme.Theme) {
 	})
 }
 
-func (l *noteList) row(c *ui.Context, th theme.Theme, path string, selected bool) {
+func (l *noteList) row(c *ui.Context, th theme.Theme, path string, selected, rule bool) {
 	w := l.w
 	n, _ := w.ws.Note(path)
-	r := ui.Row(c.Key(path)).Padding(10, 14).Gap(10).Radius(10).Cursor(ui.CursorDefault).Height(84)
+	r := ui.Row(c.Key(path)).Padding(11, 14).Gap(10).Radius(10).Cursor(ui.CursorDefault).Height(80)
+	hovered := r.Hovered()
 	if selected {
-		r.Background(th.Text.Alpha(0.07))
-	} else if r.Hovered() {
-		r.Background(th.Text.Alpha(0.03))
+		r.Background(th.Accent.Alpha(0.13))
+	} else if hovered {
+		r.Background(th.Text.Alpha(0.04))
 	}
 	if r.Clicked() {
 		w.open(path, openOptions{focus: false})
@@ -149,10 +154,16 @@ func (l *noteList) row(c *ui.Context, th theme.Theme, path string, selected bool
 		}
 	})
 	r.Children(func() {
+		if rule && !hovered {
+			ui.Box(c).Absolute().Left(14).Right(14).Bottom(0).Height(1).Background(th.Border)
+		}
 		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, n.Title).Bold().FontSize(13.5).SingleLine().Grow(1)
-				ui.Text(c, shortDate(n.Modified)).FontSize(11.5).TextColor(th.Secondary).SingleLine()
+				ui.Text(c, n.Title).FontWeight(600).FontSize(13.5).SingleLine().Grow(1)
+				date := ui.Text(c, shortDate(n.Modified)).FontSize(11.5).TextColor(th.Secondary).SingleLine()
+				if selected {
+					date.TextColor(th.Accent)
+				}
 			})
 			ui.Row(c).Gap(10).Children(func() {
 				ui.Text(c, n.Excerpt).FontSize(12.5).TextColor(th.Secondary).MaxLines(2).Grow(1).MinWidth(0)
