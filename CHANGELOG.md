@@ -22,8 +22,9 @@ into `## <version>` for a release, and refuses to bump without notes.
   the shortcuts to begin with, the panels name their keys and quick open
   marks what matched, and the workspace switcher shows the workspace's
   name and folder.
-- Settings has a toolbar, a theme picker of swatches and a preview of the
-  editor's fonts, and buttons, check boxes and sliders take the theme's
+- Settings has a toolbar, a theme picker of swatches, previews of the
+  editor's fonts and of Chinese and Japanese, and the version under
+  Updates, and buttons, check boxes and sliders take the theme's
   accent color.
 - The find bar is one field, with the count of matches and the Match
   Case and Regular Expression toggles inside it, and ⇧↩ finds the

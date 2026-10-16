@@ -189,7 +189,7 @@ func (pw *prefsWindow) view(c *ui.Context) {
 						opts = append(opts, cur)
 						names[cur] = cur
 					}
-					labeledSelect(c.Key("cjk"), &cur, opts, func(s string) string { return names[s] }).Width(220)
+					labeledSelect(c.Key("cjk"), &cur, opts, func(s string) string { return names[s] }).Width(260)
 					if cur != p.CJKFontFamily {
 						set(func(p *settings.Prefs) { p.CJKFontFamily = cur })
 					}
@@ -203,11 +203,40 @@ func (pw *prefsWindow) view(c *ui.Context) {
 						set(func(p *settings.Prefs) { p.ChineseScript = cur })
 					}
 				})
-				ui.Text(c, "A line with kana is drawn as Japanese; one with Han characters alone in the forms chosen here, or as Japanese in a note that is mostly Japanese.").
-					FontSize(12).TextColor(th.Secondary).MaxWidth(440).AlignSelf(ui.Center)
+				field("", func() {
+					ui.Text(c, "A line with kana is drawn as Japanese; one with Han characters alone in the forms chosen here, or as Japanese in a note that is mostly Japanese.").
+						FontSize(12).TextColor(th.Secondary).MaxWidth(360)
+				})
+				// The same Han characters in the forms each line takes.
+				look := a.lookOf(th)
+				ui.Column(c.Key("cjk-preview")).Margin(8, 0, 0, 0).Padding(16, 20).Gap(8).Radius(10).Background(th.Panel).Border(1, th.Border).Children(func() {
+					ui.Text(c, "Preview").FontSize(11).FontWeight(600).TextColor(th.Secondary)
+					sample := func(text, lang, label string) {
+						ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, text).Font(look.Fonts.BodyFamily(lang)).Lang(lang).FontSize(look.Fonts.Size + 2).TextColor(th.Text).Grow(1)
+							ui.Text(c, label).FontSize(11).TextColor(th.Secondary)
+						})
+					}
+					sample("海内存知己，天涯若比邻。", look.Fonts.ChineseScript, "Chinese")
+					sample("春はあけぼの。やうやう白くなりゆく山ぎは。", "ja", "Japanese")
+				})
 			case 3:
+				// The app, and which version this is.
+				ui.Row(c.Key("about")).Padding(16, 20).Gap(16).Radius(10).AlignItems(ui.Center).Background(th.Panel).Border(1, th.Border).Margin(0, 0, 8, 0).Children(func() {
+					if appIcon != nil {
+						ui.Image(c, appIcon).Size(56, 56)
+					}
+					ui.Column(c).Grow(1).Gap(3).Children(func() {
+						ui.Text(c, "Deckle").FontSize(17).Bold()
+						version := "Development build"
+						if v := mygo.App.Version(); v != "" {
+							version = "Version " + v
+						}
+						ui.Text(c, version).FontSize(12.5).TextColor(th.Secondary)
+					})
+				})
 				if !updatesAvailable() {
-					ui.Text(c, "This copy of Deckle doesn't update itself.").TextColor(th.Secondary).AlignSelf(ui.Center)
+					ui.Text(c, "This copy of Deckle doesn't update itself.").FontSize(12.5).TextColor(th.Secondary).AlignSelf(ui.Center)
 					return
 				}
 				field("Updates:", func() {
