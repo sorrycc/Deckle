@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
+	"unicode"
 	"unicode/utf8"
 
 	"deckle/internal/editor"
@@ -290,11 +292,7 @@ func (p *palette) view(c *ui.Context, th theme.Theme) {
 					}
 					switch {
 					case it.match[1] > it.match[0] && it.match[1] <= len(it.title):
-						ui.RichText(c,
-							ui.Span{Text: it.title[:it.match[0]]},
-							ui.Span{Text: it.title[it.match[0]:it.match[1]], Background: th.Highlight, Weight: 600},
-							ui.Span{Text: it.title[it.match[1]:]},
-						).FontSize(13).SingleLine().Grow(1).TextColor(th.Text)
+						ui.RichText(c, hitSpans(it.title, it.match, p.query, th)...).FontSize(13).SingleLine().Grow(1).TextColor(th.Text)
 					case it.header:
 						ui.Text(c, it.title).Bold().FontSize(13.5).SingleLine().Grow(1)
 					default:
@@ -348,6 +346,41 @@ func (p *palette) footer(c *ui.Context, th theme.Theme) {
 		ui.Box(c).Grow(1)
 		hint("esc", "Close")
 	})
+}
+
+// hitSpans is a line of a search's results with the match found, and the
+// query's other matches in the line, highlighted.
+func hitSpans(s string, match [2]int, query string, th theme.Theme) []ui.Span {
+	hits := [][2]int{match}
+	hay, needle := s, query
+	if strings.IndexFunc(query, unicode.IsUpper) < 0 {
+		// Matched without case, where folding keeps the bytes in place.
+		if l := strings.ToLower(s); len(l) == len(s) {
+			hay, needle = l, strings.ToLower(query)
+		}
+	}
+	for at := 0; needle != "" && at < len(hay); {
+		i := strings.Index(hay[at:], needle)
+		if i < 0 {
+			break
+		}
+		h := [2]int{at + i, at + i + len(needle)}
+		if h[1] <= match[0] || h[0] >= match[1] {
+			hits = append(hits, h)
+		}
+		at = h[1]
+	}
+	slices.SortFunc(hits, func(a, b [2]int) int { return a[0] - b[0] })
+	var spans []ui.Span
+	at := 0
+	for _, h := range hits {
+		if h[0] < at || h[1] > len(s) {
+			continue
+		}
+		spans = append(spans, ui.Span{Text: s[at:h[0]]}, ui.Span{Text: s[h[0]:h[1]], Background: th.Highlight, Weight: 600})
+		at = h[1]
+	}
+	return append(spans, ui.Span{Text: s[at:]})
 }
 
 // markedSpans is s with the bytes at marks in the accent.

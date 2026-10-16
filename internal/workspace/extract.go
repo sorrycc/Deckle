@@ -237,6 +237,16 @@ func stripBlockPrefix(line string) string {
 			afterMarker = true
 		case was && len(t) >= 3 && t[0] == '[' && (t[1] == ' ' || t[1] == 'x' || t[1] == 'X') && t[2] == ']' && blank(3):
 			line = t[3:]
+		case strings.HasPrefix(t, "[^") && strings.Index(t, "]:") > 2:
+			// A footnote's label.
+			line = t[strings.Index(t, "]:")+2:]
+		case strings.HasPrefix(t, "[!") && strings.IndexByte(t, ']') > 2:
+			// A callout's tag; its title, if any, reads on.
+			end := strings.IndexByte(t, ']') + 1
+			if end < len(t) && (t[end] == '-' || t[end] == '+') {
+				end++
+			}
+			line = t[end:]
 		default:
 			return t
 		}
