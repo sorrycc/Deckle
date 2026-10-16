@@ -184,14 +184,71 @@ func (e *Editor) paintMatches(p *ui.Painter, lv *lineView, start int, ox, top fl
 	}
 }
 
-// findBar builds the find bar at the top right of the editor.
+// findBar builds the find bar at the top right of the editor: a field
+// holding the count of matches and its options, the buttons that step
+// through them, and the replacement under it.
 func (e *Editor) findBar(c *ui.Context) {
 	t := &e.look.Theme
 	f := &e.find
-	ui.Column(c.Key("findbar")).Absolute().Top(8).Right(16).Width(360).Padding(8).Gap(6).Radius(10).
-		Background(t.Background).Border(1, t.Border).Shadow(0, 6, 18, 0, ui.RGBA(0, 0, 0, 0.16)).Children(func() {
-		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-			in := ui.TextInput(c.Key("find"), &f.query).Placeholder("Find").Grow(1)
+	// field is a text field of the bar, its input borderless inside.
+	field := func(key string, text *string, placeholder string, extra func()) ui.Element {
+		var in ui.Element
+		row := ui.Row(c.Key(key+"-field")).Grow(1).Height(30).Padding(0, 4, 0, 10).Gap(4).Radius(7).AlignItems(ui.Center).
+			Background(t.Text.Alpha(0.045)).Border(1, t.Border)
+		row.Children(func() {
+			in = ui.TextInputBase(c.Key(key), text).Placeholder(placeholder).Grow(1).MinWidth(0).FontSize(13)
+			if extra != nil {
+				extra()
+			}
+		})
+		if in.Focused() {
+			row.Border(1, t.Accent.Alpha(0.7)).Shadow(0, 0, 0, 3, t.Accent.Alpha(0.15))
+		}
+		return in
+	}
+	// button is a small button of the bar; on, it shows its option is.
+	button := func(key, label, tip string, on bool) bool {
+		b := ui.Box(c.Key(key)).MinWidth(24).Height(24).Padding(0, 5).Radius(6).Center().Cursor(ui.CursorDefault).Tooltip(tip).Label(tip)
+		color := t.Secondary
+		switch {
+		case on:
+			b.Background(t.Accent.Alpha(0.16))
+			color = t.Accent
+		case b.Hovered():
+			b.Background(t.Text.Alpha(0.07))
+		}
+		b.Children(func() { ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(color) })
+		return b.Clicked()
+	}
+	ui.Column(c.Key("findbar")).Absolute().Top(10).Right(18).Width(420).Padding(8).Gap(6).Radius(12).
+		Background(t.Background).Border(1, t.Border).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.16)).Shadow(0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.06)).Children(func() {
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			in := field("find", &f.query, "Find", func() {
+				status := ""
+				switch {
+				case f.invalid:
+					status = "Invalid"
+				case f.query == "":
+				case len(f.matches) == 0:
+					status = "No results"
+				default:
+					status = itoa(f.current+1) + " of " + itoa(len(f.matches))
+				}
+				if status != "" {
+					st := ui.Text(c, status).FontSize(11).TextColor(t.Secondary).SingleLine().Margin(0, 4, 0, 0)
+					if f.invalid || (f.query != "" && len(f.matches) == 0) {
+						st.TextColor(t.Deleted)
+					}
+				}
+				if button("case", "Aa", "Match Case", f.matchCase) {
+					f.matchCase = !f.matchCase
+					f.refresh(e)
+				}
+				if button("regex", ".*", "Regular Expression", f.regex) {
+					f.regex = !f.regex
+					f.refresh(e)
+				}
+			})
 			if f.focus {
 				in.Focus()
 				f.focus = false
@@ -207,48 +264,35 @@ func (e *Editor) findBar(c *ui.Context) {
 			if in.Submitted() {
 				f.step(e, 1)
 			}
+			if in.Shortcut(ui.Shift, ui.KeyEnter) {
+				f.step(e, -1)
+			}
 			if in.Shortcut(0, ui.KeyEscape) {
 				f.close(e)
 			}
-			status := ""
-			switch {
-			case f.invalid:
-				status = "Invalid"
-			case f.query == "":
-			case len(f.matches) == 0:
-				status = "No results"
-			default:
-				status = itoa(f.current+1) + " of " + itoa(len(f.matches))
-			}
-			ui.Text(c, status).FontSize(11).TextColor(t.Secondary).SingleLine()
-			if ui.Button(c, "Aa").Tooltip("Match Case").Selected(f.matchCase).Clicked() {
-				f.matchCase = !f.matchCase
-				f.refresh(e)
-			}
-			if ui.Button(c, ".*").Tooltip("Regular Expression").Selected(f.regex).Clicked() {
-				f.regex = !f.regex
-				f.refresh(e)
-			}
-			if ui.Button(c, "‹").Tooltip("Previous").Clicked() {
+			if button("prev", "‹", "Previous", false) {
 				f.step(e, -1)
 			}
-			if ui.Button(c, "›").Tooltip("Next").Clicked() {
+			if button("next", "›", "Next", false) {
 				f.step(e, 1)
 			}
-			if ui.Button(c, "✕").Tooltip("Done").Clicked() {
+			if button("done", "✕", "Done", false) {
 				f.close(e)
 			}
 		})
 		if f.replacing && !e.ReadOnly {
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				in := ui.TextInput(c.Key("replace"), &f.replacement).Placeholder("Replace").Grow(1)
+			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+				in := field("replace", &f.replacement, "Replace", nil)
 				if in.Submitted() {
 					f.replaceOne(e)
 				}
-				if ui.Button(c, "Replace").Clicked() {
+				if in.Shortcut(0, ui.KeyEscape) {
+					f.close(e)
+				}
+				if button("replace-one", "Replace", "Replace", false) {
 					f.replaceOne(e)
 				}
-				if ui.Button(c, "All").Clicked() {
+				if button("replace-all", "All", "Replace All", false) {
 					f.replaceAll(e)
 				}
 			})

@@ -25,6 +25,9 @@ into `## <version>` for a release, and refuses to bump without notes.
 - Settings has a toolbar, a theme picker of swatches and a preview of the
   editor's fonts, and buttons, check boxes and sliders take the theme's
   accent color.
+- The find bar is one field, with the count of matches and the Match
+  Case and Regular Expression toggles inside it, and ⇧↩ finds the
+  previous match.
 - Search Notes lists a line once with every match in it marked, and its
   lines read without the tags of callouts and footnotes.
 - The tree builds only the rows in view: in a folder of thousands of
