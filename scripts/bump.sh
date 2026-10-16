@@ -8,7 +8,7 @@
 # same commit, unless a "## <version>" section is there already: the update
 # window shows it, it is the notes of the GitHub release, and the release
 # fails without it. Pre-release versions such as 1.2.0-beta.1 are refused,
-# as MyGo's updates have no beta channel.
+# as Deckle has no beta channel yet.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

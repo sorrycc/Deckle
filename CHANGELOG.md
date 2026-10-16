@@ -41,6 +41,7 @@ into `## <version>` for a release, and refuses to bump without notes.
   before its text is named after its file.
 - Clicking empty space in the tree, or Escape in the list, goes back to
   All Notes, and Deckle Help describes this version.
+- On Windows and Linux, the Help menu shows, with Check for Updates… in it.
 
 ## 0.1.1
 

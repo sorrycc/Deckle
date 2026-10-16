@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
-# Prints the notes of a version: its section of CHANGELOG.md.
+# Prints the "## <version>" section of CHANGELOG.md without its heading, as
+# the notes of the GitHub release of that version, or fails when it has none.
 # Usage: scripts/release-notes.sh <version>
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-/usr/bin/python3 - "$ROOT/CHANGELOG.md" "$1" <<'PY'
-import re, sys
-text = open(sys.argv[1]).read()
-m = re.search(rf"^## {re.escape(sys.argv[2])}\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-if not m:
-    sys.exit(f"CHANGELOG.md has no ## {sys.argv[2]} section.")
-print(m.group(1).strip())
-PY
+
+if [ $# -ne 1 ]; then
+    sed -n '2,4s/^# \{0,1\}//p' "$0" >&2
+    exit 1
+fi
+NOTES="$(awk -v heading="## $1" '
+    $0 == heading { found = 1; next }
+    found && /^## / { exit }
+    found && /./ { printf "%s", blanks; blanks = ""; started = 1; print; next }
+    found && started { blanks = blanks "\n" }
+' "$(dirname "$0")/../CHANGELOG.md")"
+if [ -z "$NOTES" ]; then
+    echo "CHANGELOG.md has no notes under \"## $1\"." >&2
+    exit 1
+fi
+printf '%s\n' "$NOTES"

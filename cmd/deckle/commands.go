@@ -10,6 +10,7 @@ import (
 	"deckle/internal/settings"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -301,11 +302,27 @@ func (a *deckle) setMenu() {
 		}
 		menus[c.menu] = append(menus[c.menu], &mygo.MenuItem{Label: c.title, Accelerator: c.accel, Hidden: c.hidden, Click: run(c.id)})
 	}
+	// Builds that can update themselves get "Check for Updates…", after
+	// About on macOS and in the Help menu elsewhere, where MyGo has no app
+	// menu nor a Help menu of that role.
+	mac := runtime.GOOS == "darwin"
 	appItems := []*mygo.MenuItem{
 		{Role: mygo.RoleAbout, Label: "About Deckle"},
 	}
-	if updatesAvailable() {
-		appItems = append(appItems, &mygo.MenuItem{Label: "Check for Updates…", Click: func(*mygo.MenuItem, *mygo.Window) { checkForUpdates() }})
+	help := []*mygo.MenuItem{
+		{Label: "Deckle Help", Accelerator: "CmdOrCtrl+?", Click: func(*mygo.MenuItem, *mygo.Window) { a.showHelp() }},
+		{Label: "Markdown Reference", Click: func(*mygo.MenuItem, *mygo.Window) { a.showHelp() }},
+	}
+	helpRole := mygo.RoleHelp
+	if !mac {
+		helpRole = ""
+	}
+	if mygo.Updater.Enabled() {
+		if mac {
+			appItems = append(appItems, updater.MenuItem())
+		} else {
+			help = append(help, mygo.Separator(), updater.MenuItem())
+		}
 	}
 	appItems = append(appItems,
 		mygo.Separator(),
@@ -334,10 +351,6 @@ func (a *deckle) setMenu() {
 		mygo.Separator(),
 		{Role: mygo.RoleFront},
 	}
-	help := []*mygo.MenuItem{
-		{Label: "Deckle Help", Accelerator: "CmdOrCtrl+?", Click: func(*mygo.MenuItem, *mygo.Window) { a.showHelp() }},
-		{Label: "Markdown Reference", Click: func(*mygo.MenuItem, *mygo.Window) { a.showHelp() }},
-	}
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "Deckle", Role: mygo.RoleAppMenu, Submenu: appItems},
 		{Label: "File", Submenu: menus["File"]},
@@ -346,14 +359,14 @@ func (a *deckle) setMenu() {
 		{Label: "View", Submenu: view},
 		{Label: "Go", Submenu: menus["Go"]},
 		{Label: "Window", Role: mygo.RoleWindow, Submenu: win},
-		{Label: "Help", Role: mygo.RoleHelp, Submenu: help},
+		{Label: "Help", Role: helpRole, Submenu: help},
 	}))
 	var dock []*mygo.MenuItem
 	for _, dir := range a.s.Recent() {
 		d := dir
 		dock = append(dock, &mygo.MenuItem{Label: filepath.Base(d), ToolTip: d, Click: func(*mygo.MenuItem, *mygo.Window) { a.openWorkspace(d, true) }})
 	}
-	if runtime.GOOS == "darwin" {
+	if mac {
 		if len(dock) > 0 {
 			mygo.App.Dock.SetMenu(mygo.NewMenu(dock))
 		} else {

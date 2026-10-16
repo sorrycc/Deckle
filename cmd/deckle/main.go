@@ -51,6 +51,8 @@ func main() {
 	if os.Getenv("DECKLE_SNAPSHOT") == "" && !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
+	// Release builds check for updates once a day and offer them in
+	// MyGo's update window; development builds never check.
 	mygo.Use(native.Plugin)
 	a := app
 	mygo.App.OnSecondInstance(func(args []string, wd string) {

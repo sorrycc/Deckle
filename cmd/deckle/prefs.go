@@ -235,7 +235,7 @@ func (pw *prefsWindow) view(c *ui.Context) {
 						ui.Text(c, version).FontSize(12.5).TextColor(th.Secondary)
 					})
 				})
-				if !updatesAvailable() {
+				if !mygo.Updater.Enabled() {
 					ui.Text(c, "This copy of Deckle doesn't update itself.").FontSize(12.5).TextColor(th.Secondary).AlignSelf(ui.Center)
 					return
 				}
@@ -247,7 +247,7 @@ func (pw *prefsWindow) view(c *ui.Context) {
 				})
 				field("", func() {
 					if ui.Button(c, "Check Now").Clicked() {
-						checkForUpdates()
+						updater.CheckForUpdates()
 					}
 				})
 			}
