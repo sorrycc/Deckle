@@ -95,13 +95,16 @@ fi
 
 echo "==> $CURRENT -> $VERSION"
 /usr/bin/python3 - "$VERSION" <<'PY'
-import json, sys
+import json, re, sys
+# Replaces only the version, keeping the file's hand-written layout, which
+# json.dump would spread over many lines.
 with open("mygo.json") as f:
-    config = json.load(f)
-config["version"] = sys.argv[1]
+    text = f.read()
+text, n = re.subn(r'^(  "version": ")[^"]*(")', r"\g<1>%s\g<2>" % sys.argv[1], text, count=1, flags=re.M)
+if n != 1 or json.loads(text)["version"] != sys.argv[1]:
+    sys.exit("Couldn't find the version in mygo.json.")
 with open("mygo.json", "w") as f:
-    json.dump(config, f, indent=2, ensure_ascii=False)
-    f.write("\n")
+    f.write(text)
 PY
 FILES=mygo.json
 if [ -n "$RENAME_UNRELEASED" ]; then
