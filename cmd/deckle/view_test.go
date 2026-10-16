@@ -60,6 +60,25 @@ func waitIndexed(w *window) {
 	}
 }
 
+// TestTreeChoosesFolders checks that a folder's row lists its notes, and a
+// click on no row lists every note again.
+func TestTreeChoosesFolders(t *testing.T) {
+	dir := bigWorkspace(t, 3, 2)
+	w := testWindow(t, dir)
+	tt := ui.NewTester(w.view, 1240, 800)
+	tt.Frame()
+	if err := tt.Click("Folder 1"); err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "Folder 1"); w.list.folder != want {
+		t.Fatalf("list shows %q, want %q", w.list.folder, want)
+	}
+	tt.ClickAt(100, 600)
+	if w.list.folder != "" {
+		t.Fatalf("list shows %q after a click on no row", w.list.folder)
+	}
+}
+
 // TestWindowFrameTime prints how long a frame of the whole window takes,
 // drawn on the CPU, with a workspace of 4,000 notes and a note open.
 func TestWindowFrameTime(t *testing.T) {

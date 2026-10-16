@@ -117,7 +117,12 @@ func (t *tree) view(c *ui.Context, th theme.Theme) {
 					w.state.SidebarHidden = true
 				}
 			})
-			ui.Scroll(c.Key("tree")).Grow(1).Padding(4, 6).Children(func() {
+			sc := ui.Scroll(c.Key("tree")).Grow(1).Padding(4, 6)
+			// A click on no row goes back to every note.
+			if sc.Clicked() {
+				w.list.show("")
+			}
+			sc.Children(func() {
 				ui.Column(c).Gap(1).Children(func() {
 					t.row(c, th, w.root, true, 0, true)
 					if len(w.state.Starred) > 0 {
@@ -180,7 +185,7 @@ func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth i
 	if r.Clicked() {
 		switch {
 		case dir:
-			if isRoot {
+			if isRoot || (selected && r.ClickModifiers()&ui.Cmd != 0) {
 				w.list.show("")
 			} else {
 				w.list.show(path)

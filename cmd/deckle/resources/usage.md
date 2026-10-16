@@ -2,13 +2,13 @@
 
 ## Workspaces
 
-A workspace is a folder, and each workspace has a window of its own, all in one app with one Dock icon. Open one with File > Open… (⌘O), from File > Open Recent or the Dock icon's menu, or by dropping a folder on the app or the Welcome window; a workspace already open comes to the front instead. File > New Window (⇧⌘N) shows the Welcome window to pick another. The switcher at the bottom of the sidebar opens a workspace in place of the window's own. A file opened the same ways, or with Finder's Open With, opens in a new tab of the window whose workspace holds it, or else of the front window, and leaves the workspace as it is. With no workspace open, Deckle opens the last one, or else the file's own folder without adding it to the recent workspaces. Deckle reopens the workspaces that were open when it quit, their tabs and where you were in each note; when there are none, a Welcome window (⇧⌘1) offers a folder to open and the workspaces opened before, which a right-click or Delete takes off the list. Closing the last workspace window brings the Welcome window back. Hidden files and `node_modules` folders are left out.
+A workspace is a folder, and each workspace has a window of its own, all in one app with one Dock icon. Open one with File > Open… (⌘O), from File > Open Recent or the Dock icon's menu, or by dropping a folder on the app or the Welcome window; a workspace already open comes to the front instead. File > New Window (⇧⌘N) shows the Welcome window to pick another. The switcher at the bottom of the sidebar, under the workspace's name and folder, opens a workspace in place of the window's own. A file opened the same ways, or with Finder's Open With, opens in a new tab of the window whose workspace holds it, or else of the front window, and leaves the workspace as it is. With no workspace open, Deckle opens the last one, or else the file's own folder without adding it to the recent workspaces. Deckle reopens the workspaces that were open when it quit, their tabs and where you were in each note; when there are none, a Welcome window (⇧⌘1) offers a folder to open and the workspaces opened before, which a right-click or Delete takes off the list. Closing the last workspace window brings the Welcome window back. Hidden files and `node_modules` folders are left out.
 
-Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). The workspace's own row, at the top of the tree, lists every note. Clicking empty space in the tree, ⌘-clicking the selected row or pressing Escape goes back to it. Titles sort as a person reads them, so "Note 2" comes before "Note 10". Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
+Selecting a folder in the tree lists its notes, including those in folders under it, newest first or by title (the button at the top of the list). All Notes, at the top of the tree, lists every note. Clicking empty space in the tree, ⌘-clicking the selected folder or pressing Escape in the list goes back to it. The tree opens the folders of the note shown, and marks it. Titles sort as a person reads them, so "Note 2" comes before "Note 10". A note's title is its first heading when that comes before its text, or else its file's name. Each row shows the note's title, when it was last changed, the first two lines of its text and its first image. Selecting a note opens it in the current tab. ⌘-click or double-click opens it in a new tab.
 
 Image files open in a tab of their own, fitted to the pane, and pinch or ⌘-scroll zooms them. Other text files open with their code highlighted.
 
-Right-click in the tree to create notes and folders, rename, star, reveal in Finder or move to the Trash. Drag files onto a folder to move them; files dragged in from Finder are copied. Notes can be dragged out of the list too, onto a folder, into a note as a link, or to another app. ⌘⌫ moves the selected note to the Trash, and Edit > Undo brings it back.
+Right-click in the tree to create notes and folders, rename, star, reveal in Finder or move to the Trash. Drag files onto a folder to move them; files dragged in from Finder are copied. Notes can be dragged out of the list too, onto a folder, into a note as a link, or to another app. ⌘⌫ moves the note shown to the Trash while the editor doesn't have the keyboard.
 
 The arrow keys move through the tree and the list without taking the keyboard away from them; Return hands it to the editor, and Go > Note List (⌥⌘L) and Go > Editor (⌥⌘E) move it either way. Tabs have a menu on right-click, with Close Other Tabs, Close Tabs to the Right, Reveal in Finder, Copy Path and Open in Default App, and ⇧⌘T brings back the tab closed last.
 
@@ -38,7 +38,7 @@ Markdown's syntax shows only around the selection: `-` becomes a bullet, `[ ]` a
 - `/` at the start of a line opens a menu of blocks to insert.
 - `[[` completes the names of notes.
 - ⌘-click follows a link, a wikilink or a footnote. Hovering over a link shows where it goes, and with ⌘ held the pointer becomes a hand and the link underlines. A wikilink to a missing note creates it beside the current note.
-- Edit > Paste and Match Style pastes plain text, and the Edit menu's Spelling, Substitutions, Transformations and Speech submenus are the system's own.
+- Edit > Paste and Match Style pastes plain text.
 - Hovering over a code block shows a Copy button at its corner.
 - A long note scrolls past its end, so its last lines can be read mid-screen. A click in that room puts the insertion point at the end.
 - Pasting or dropping an image saves it in an `assets` folder beside the note and links it.
@@ -60,7 +60,7 @@ The ticks at the right edge of a note are its headings. Hover over them for an o
 
 The line under the editor shows how many notes link to this one (click it for the list), where the insertion point is, and how many words the note has. For a file that isn't a note it names the language, or an image's size.
 
-Help > Deckle Help opens this guide in a tab, and the Help menu's search field finds any command.
+The panels list their keys at the bottom, and quick open marks the letters of each path that matched. An empty tab lists the shortcuts to begin with. Help > Deckle Help opens this guide in a tab, and the Help menu's search field finds any command.
 
 ## Printing
 
@@ -76,27 +76,16 @@ Each note has its own undo history. With nothing left to undo in the note, ⌘Z 
 
 ## Settings
 
-Settings (⌘,) holds the theme, the editor font and size, whether syntax hides, spell checking, the line width and the line height. ⌘+ and ⌘- change the font size. A theme colors the whole window, the panels, the diagrams and the selection, not only the page. Settings are stored in the `dev.sorrycc.deckle` user defaults.
+Settings (⌘,) holds the theme, picked from swatches of each, the editor font and size, with a preview of them, whether syntax hides, the line width and the line height. ⌘+ and ⌘- change the font size. A theme colors the whole window, the panels, the diagrams and the selection, not only the page. Settings are stored in `settings.json` in Deckle's folder of Application Support (or the system's equivalent); the first launch after Deckle 0.1 takes that version's settings, workspaces and tabs.
 
-## Launch arguments
+## Environment variables
 
 For trying the app from a script:
 
-| Argument | Effect |
+| Variable | Effect |
 |---|---|
-| `-workspace <folder>` | Opens this folder alone, without remembering it among the workspaces to reopen |
-| `-open <file>` | Opens this file in a tab |
-| `-select <loc,len>` | Selects this range of the open file, in UTF-16 units |
-| `-scroll <fraction>` | Scrolls this far down the open file, from 0 to 1 |
-| `-type <text>` | Types this text at the selection; `\n` is a line break |
-| `-run <command>` | Runs the menu command with this title, such as `Find…` or `Toggle Done`, after the typing |
-| `-hover <index>` | Moves the pointer over this character; `-command YES` holds ⌘ |
-| `-palette files\|search\|commands\|headings\|backlinks` | Opens a panel; `-query <text>` fills it in |
-| `-welcome YES` | Opens the Welcome window, pictured as a panel |
-| `-settings YES` | Opens the Settings window, which a snapshot pictures as a panel; `-settingsTab 1` picks a tab |
-| `-exportPDF <path>` | Writes the open note as a PDF there |
-| `-snapshot <png>` | Writes a picture of the window, and of any panel as `<name>-panel.png`, then quits |
-| `-timing YES` | Prints how long launching and indexing took |
-| `-benchmark <n>` | Types n characters into the open file, prints the time each took, and quits |
-| `-scrollBenchmark <n>` | Pages n times down the open file, prints the time each page took to draw, and quits |
-| `-theme <id>` | Uses a theme for this run: `system`, `paper`, `github-light`, `solarized-light`, `one-dark`, `nord`, `tokyo-night`, `rose-pine`, `dracula`, `gruvbox-dark` |
+| `DECKLE_DATA_DIR` | Keeps the settings in this folder |
+| `DECKLE_WORKSPACE` | Opens this folder as a workspace |
+| `DECKLE_SNAPSHOT` | Writes a picture of the front window there once it settles, then quits |
+| `DECKLE_SNAPSHOT_RUN` | With `DECKLE_SNAPSHOT`, the commands to run first, such as `quickOpen` or `settings` |
+| `DECKLE_EXPORT_PDF` | With `DECKLE_SNAPSHOT`, writes the open note as a PDF there first |

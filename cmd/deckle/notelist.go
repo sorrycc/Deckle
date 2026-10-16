@@ -111,6 +111,10 @@ func (l *noteList) view(c *ui.Context, th theme.Theme) {
 		if list.Shortcut(0, ui.KeyEnter) {
 			w.focusEditor = true
 		}
+		// Escape goes back to every note.
+		if l.folder != "" && list.Shortcut(0, ui.KeyEscape) {
+			l.show("")
+		}
 		list.Children(func() {
 			if len(l.notes) == 0 {
 				ui.Column(c).Padding(40, 20).Gap(6).AlignItems(ui.Center).Children(func() {

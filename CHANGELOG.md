@@ -17,6 +17,20 @@ into `## <version>` for a release, and refuses to bump without notes.
   defaults.
 - Spell checking, the Edit menu's Spelling, Substitutions and
   Transformations submenus, and beta updates are gone for now.
+- A fresh look: the tree opens the folders of the note shown and marks
+  it, the note list parts its notes with hairlines, an empty tab lists
+  the shortcuts to begin with, the panels name their keys and quick open
+  marks what matched, and the workspace switcher shows the workspace's
+  name and folder.
+- Settings has a toolbar, a theme picker of swatches and a preview of the
+  editor's fonts, and buttons, check boxes and sliders take the theme's
+  accent color.
+- A long note no longer runs under the line at the bottom of the window.
+- Every item of a numbered list is a list item, not only the first.
+- A heading further down a note no longer names it: a note without one
+  before its text is named after its file.
+- Clicking empty space in the tree, or Escape in the list, goes back to
+  All Notes, and Deckle Help describes this version.
 
 ## 0.1.1
 
