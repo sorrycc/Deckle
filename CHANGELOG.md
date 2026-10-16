@@ -27,6 +27,10 @@ into `## <version>` for a release, and refuses to bump without notes.
   accent color.
 - Search Notes lists a line once with every match in it marked, and its
   lines read without the tags of callouts and footnotes.
+- The tree builds only the rows in view: in a folder of thousands of
+  notes, a frame, and so each keystroke, takes a fraction of a
+  millisecond rather than tens of them. Opening a note scrolls the tree
+  to it, and hairlines part the tabs not shown.
 - A long note no longer runs under the line at the bottom of the window.
 - Every item of a numbered list is a list item, not only the first.
 - A heading further down a note no longer names it: a note without one

@@ -60,6 +60,28 @@ func waitIndexed(w *window) {
 	}
 }
 
+// TestFlatFolderFrameTime prints how long a frame takes with 3,000 notes
+// in the workspace's own folder, every one a row of the tree.
+func TestFlatFolderFrameTime(t *testing.T) {
+	dir := t.TempDir()
+	for n := range 3000 {
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("Note %d.md", n)), []byte(fmt.Sprintf("# Note %d\n\nText.\n", n)), 0o644)
+	}
+	w := testWindow(t, dir)
+	tt := ui.NewTester(w.view, 1240, 800)
+	for range 5 {
+		tt.Frame()
+	}
+	var times []time.Duration
+	for range 30 {
+		start := time.Now()
+		tt.Frame()
+		times = append(times, time.Since(start))
+	}
+	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+	t.Logf("3,000 notes in one folder: median %v per frame", times[len(times)/2])
+}
+
 // TestTreeChoosesFolders checks that a folder's row lists its notes, and a
 // click on no row lists every note again.
 func TestTreeChoosesFolders(t *testing.T) {

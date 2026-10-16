@@ -25,8 +25,31 @@ type tree struct {
 	renaming    string
 	renameText  string
 	focusRename bool
-	scroll      ui.ScrollState
+	// rows are the rows shown, flattened from the folders open, for a
+	// list that builds only those in view.
+	rows []treeRow
+	list ui.ListState
+	// revealing is a file to scroll to once the tree shows it.
+	revealing string
 }
+
+// treeRow is a row of the tree as it shows.
+type treeRow struct {
+	kind  treeRowKind
+	path  string
+	dir   bool
+	depth int
+}
+
+type treeRowKind uint8
+
+const (
+	rowEntry treeRowKind = iota
+	rowRoot
+	rowHeader
+	rowStar
+	rowGap
+)
 
 type treeEntry struct {
 	path string
@@ -35,6 +58,19 @@ type treeEntry struct {
 
 func newTree(w *window) *tree {
 	t := &tree{w: w, expanded: map[string]bool{}, children: map[string][]treeEntry{}}
+	t.list.Key = func(i int) any {
+		if i >= len(t.rows) {
+			return i
+		}
+		r := t.rows[i]
+		switch r.kind {
+		case rowEntry:
+			return r.path
+		case rowStar:
+			return "star:" + r.path
+		}
+		return r.kind
+	}
 	for _, p := range w.state.Expanded {
 		t.expanded[p] = true
 	}
@@ -100,6 +136,7 @@ func (t *tree) reloadAll() { clear(t.children) }
 // reveal opens the folders that hold path, so the tree shows the note
 // the editor does.
 func (t *tree) reveal(path string) {
+	t.revealing = path
 	root := t.w.root
 	for dir := filepath.Dir(path); len(dir) > len(root) && strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {
 		t.expanded[dir] = true
@@ -117,37 +154,59 @@ func (t *tree) view(c *ui.Context, th theme.Theme) {
 					w.state.SidebarHidden = true
 				}
 			})
-			sc := ui.Scroll(c.Key("tree")).Grow(1).Padding(4, 6)
+			t.flatten()
+			list := ui.List(c.Key("tree"), &t.list, len(t.rows), func(i int) {
+				r := t.rows[i]
+				switch r.kind {
+				case rowRoot:
+					t.row(c, th, w.root, true, 0, true)
+				case rowHeader:
+					ui.Text(c, "Starred").FontSize(11).Bold().TextColor(th.Secondary).Padding(10, 10, 4, 10)
+				case rowGap:
+					ui.Box(c).Height(8)
+				default:
+					t.row(c, th, r.path, r.dir, r.depth, false)
+				}
+			}).Grow(1).Gap(1).Padding(4, 6)
 			// A click on no row goes back to every note.
-			if sc.Clicked() {
+			if list.Clicked() {
 				w.list.show("")
 			}
-			sc.Children(func() {
-				ui.Column(c).Gap(1).Children(func() {
-					t.row(c, th, w.root, true, 0, true)
-					if len(w.state.Starred) > 0 {
-						ui.Text(c, "Starred").FontSize(11).Bold().TextColor(th.Secondary).Padding(10, 10, 4, 10)
-						for _, p := range w.state.Starred {
-							t.row(c, th, p, false, 0, false)
-						}
-						ui.Box(c).Height(8)
-					}
-					for _, e := range t.entries(w.root) {
-						t.node(c, th, e, 0)
-					}
-				})
-			})
 			t.switcher(c, th)
 		})
 	})
 }
 
-func (t *tree) node(c *ui.Context, th theme.Theme, e treeEntry, depth int) {
-	t.row(c, th, e.path, e.dir, depth, false)
-	if e.dir && t.expanded[e.path] {
-		for _, ch := range t.entries(e.path) {
-			t.node(c, th, ch, depth+1)
+// flatten lists the rows the tree shows: the workspace, the starred
+// files, and the folders and files, those of each open folder under it.
+func (t *tree) flatten() {
+	w := t.w
+	t.rows = append(t.rows[:0], treeRow{kind: rowRoot})
+	if len(w.state.Starred) > 0 {
+		t.rows = append(t.rows, treeRow{kind: rowHeader})
+		for _, p := range w.state.Starred {
+			t.rows = append(t.rows, treeRow{kind: rowStar, path: p})
 		}
+		t.rows = append(t.rows, treeRow{kind: rowGap})
+	}
+	var walk func(dir string, depth int)
+	walk = func(dir string, depth int) {
+		for _, e := range t.entries(dir) {
+			t.rows = append(t.rows, treeRow{path: e.path, dir: e.dir, depth: depth})
+			if e.dir && t.expanded[e.path] {
+				walk(e.path, depth+1)
+			}
+		}
+	}
+	walk(w.root, 0)
+	if t.revealing != "" {
+		for i, r := range t.rows {
+			if r.kind == rowEntry && r.path == t.revealing {
+				t.list.ScrollIntoView(i)
+				break
+			}
+		}
+		t.revealing = ""
 	}
 }
 

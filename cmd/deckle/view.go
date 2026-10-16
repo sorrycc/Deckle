@@ -180,6 +180,10 @@ func (w *window) tabBar(c *ui.Context, th theme.Theme) {
 					}
 				})
 				el.Children(func() {
+					// A hairline parts two tabs neither of which is shown.
+					if i > 0 && i != w.sel && i-1 != w.sel {
+						ui.Box(c).Absolute().Left(-1.5).Top(8).Bottom(8).Width(1).Background(th.Border)
+					}
 					color := th.Secondary
 					if i == w.sel {
 						color = th.Text
