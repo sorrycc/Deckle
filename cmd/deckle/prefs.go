@@ -229,7 +229,7 @@ func (pw *prefsWindow) view(c *ui.Context) {
 // themeCard is a theme's swatch: its page, a heading and lines of text
 // in its colors, and its name; it reports a click.
 func themeCard(c *ui.Context, id string, selected bool, cur theme.Theme) bool {
-	card := ui.Column(c.Key("theme-"+id)).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorDefault).Label(theme.Name(id))
+	card := ui.Column(c.Key("theme-" + id)).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorDefault).Label(theme.Name(id))
 	clicked := card.Clicked()
 	hovered := card.Hovered()
 	card.Children(func() {
