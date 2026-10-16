@@ -402,6 +402,11 @@ func (w *window) outline(c *ui.Context, ed *editor.Editor, th theme.Theme) {
 			shown = append(shown, h)
 		}
 	}
+	// Rows indent from the note's top level, whatever it is.
+	topLevel := 6
+	for _, h := range shown {
+		topLevel = min(topLevel, h.Level)
+	}
 	current := -1
 	caret, _ := ed.Selection()
 	for i, h := range shown {
@@ -413,11 +418,12 @@ func (w *window) outline(c *ui.Context, ed *editor.Editor, th theme.Theme) {
 	hovered := rail.Hovered()
 	rail.Children(func() {
 		if hovered {
-			ui.Column(c.Key("outline-list")).Padding(8).Gap(1).Radius(10).Background(th.Background).Border(1, th.Border).
-				Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.15)).MaxHeight(480).Width(260).Children(func() {
+			ui.Column(c.Key("outline-list")).Margin(0, 10, 0, 0).Padding(6).Gap(1).Radius(12).Background(th.Background).Border(1, th.Border).
+				Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.16)).Shadow(0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.06)).MaxHeight(480).Width(260).Children(func() {
+				ui.Text(c, "Outline").FontSize(11).FontWeight(600).TextColor(th.Secondary).Padding(4, 8, 4, 8)
 				ui.Scroll(c).Children(func() {
 					for i, h := range shown {
-						row := ui.Row(c.Key(fmt.Sprintf("h%d", i))).Padding(4, 8, 4, 8+float32(h.Level-1)*12).Radius(6).Cursor(ui.CursorDefault)
+						row := ui.Row(c.Key(fmt.Sprintf("h%d", i))).Padding(5, 8, 5, 8+float32(h.Level-topLevel)*12).Radius(6).Cursor(ui.CursorDefault)
 						if row.Hovered() {
 							row.Background(th.Text.Alpha(0.07))
 						}
