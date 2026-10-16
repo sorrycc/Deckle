@@ -1,61 +1,124 @@
+# Builds Deckle for macOS, Windows and Linux when a v* tag is pushed
+# (scripts/bump.sh pushes one), uploads the apps and their signed updates to
+# the release of the tag, and publishes it, which installed apps update to.
+#
+# Copies of Deckle 0.1, the AppKit app, update with Sparkle from the appcast
+# on gh-pages: the macOS job adds each release to it too, so they move to
+# this one, and from then on update with MyGo.
 name: Release
+
 on:
   push:
     tags: ["v*"]
+
 permissions:
-  contents: write          # create releases and push gh-pages
+  contents: write # the release, the uploads to it, and gh-pages
+
 concurrency: release
+
 jobs:
-  release:
-    runs-on: macos-26      # Xcode with Swift 6.2 or later, for swift-tools-version 6.2
+  draft-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the tag against mygo.json and CHANGELOG.md
+        run: |
+          version="$(jq -r .version mygo.json)"
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "::error::tag $GITHUB_REF_NAME, but mygo.json has $version"; exit 1; }
+          grep -q "^## $version\$" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; }
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "Deckle ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+
+  build:
+    needs: draft-release
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest, platform: "darwin/arm64,darwin/amd64" }
+          - { name: Windows, os: ubuntu-latest, platform: "windows/amd64,windows/arm64" }
+          - { name: Linux, os: ubuntu-latest, platform: "linux/amd64,linux/arm64" }
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0   # the build number counts every commit
-      - name: Check CHANGELOG.md has the release's notes
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          case "$version" in
-            *-*) ;; # A beta shows "## Unreleased", which may be empty.
-            *) grep -qxF "## $version" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; } ;;
-          esac
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal && rustup default stable
-      - uses: actions/cache@v4
+          fetch-depth: 0 # the build number counts every commit
+      - uses: actions/setup-go@v6
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-      - name: Import the Developer ID certificate
+          go-version-file: go.mod
+      - name: Install NSIS, for the Windows installers
+        if: matrix.name == 'Windows'
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      # mygo.json signs ad hoc, so that builds on any Mac work; releases sign
+      # with the Developer ID and are notarized. CFBundleVersion is the count
+      # of commits, as Deckle 0.1's was, so Sparkle sees a newer build.
+      - name: Import the certificate and the notary credentials
+        if: runner.os == 'macOS'
         env:
-          CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          keychain="$RUNNER_TEMP/release.keychain-db"
-          password="$(uuidgen)"
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -base64 24)"
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
-          echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           rm "$RUNNER_TEMP/certificate.p12"
           curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
-          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-      - name: Release
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" || true
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" login.keychain
+          xcrun notarytool store-credentials notary --keychain "$keychain" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)"
+          test -n "$identity" || { echo "::error::no Developer ID Application identity in MACOS_CERTIFICATE_P12"; exit 1; }
+          jq --arg identity "$identity" --arg keychain "$keychain" --arg build "$(git rev-list --count HEAD)" \
+            '.macos.signingIdentity = $identity | .macos.notarize = {keychainProfile: "notary", keychain: $keychain} | .macos.infoPlist.CFBundleVersion = $build' \
+            mygo.json > "$RUNNER_TEMP/mygo.json"
+          mv "$RUNNER_TEMP/mygo.json" mygo.json
+      - name: Check the update signing key
+        env:
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: test -n "$MYGO_UPDATER_PRIVATE_KEY" || { echo "::error::MYGO_UPDATER_PRIVATE_KEY is not set"; exit 1; }
+      - name: Build and upload
         env:
           GH_TOKEN: ${{ github.token }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: go tool mygo build -platform "${{ matrix.platform }}" -upload
+      # Deckle 0.1 ran on Apple silicon only: its Sparkle takes the arm64
+      # app, as a zip signed with the Sparkle key, from the appcast.
+      - name: Add the release to the Sparkle appcast
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          scripts/release.sh
+          scripts/sparkle-bridge.sh build/darwin-arm64/Deckle.app
       - name: Remove the keychain
-        if: always()
-        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
+        if: always() && runner.os == 'macOS'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

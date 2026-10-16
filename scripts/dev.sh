@@ -1,18 +1,14 @@
 #!/usr/bin/env bash
-# Builds a debug copy of Deckle in build/dev and opens it beside the everyday
-# Deckle. It has its own bundle id, so its own settings, and never updates
+# Runs Deckle Dev with live reload (go tool mygo dev) beside the everyday
+# Deckle, with settings of its own in DECKLE_DATA_DIR, and never updating
 # itself.
-# Usage: scripts/dev.sh [files or folders...]   e.g. scripts/dev.sh ~/Notes
+# Usage: scripts/dev.sh [folder]   the folder opens as a workspace
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/build/dev/Deckle.app"
-
-DECKLE_OUT="$ROOT/build/dev" DECKLE_BUNDLE_ID=dev.sorrycc.deckle.dev "$ROOT/scripts/bundle.sh" debug
-
-echo "==> opening build/dev/Deckle.app"
-if [ $# -gt 0 ]; then
-    open -a "$APP" "$@"
-else
-    open "$APP"
-fi
+export DECKLE_DATA_DIR="${DECKLE_DATA_DIR:-$HOME/Library/Application Support/Deckle-dev}"
+mkdir -p "$DECKLE_DATA_DIR"
+[ $# -eq 0 ] || export DECKLE_WORKSPACE="$(cd "$1" && pwd)"
+echo "==> mygo dev (data in $DECKLE_DATA_DIR)"
+cd "$ROOT"
+exec go tool mygo dev

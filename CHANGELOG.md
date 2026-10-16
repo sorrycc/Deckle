@@ -2,10 +2,21 @@
 
 The update window and the GitHub release show the section of the version
 they offer. Write notes under `## Unreleased`; `scripts/bump.sh` turns it
-into `## <version>` for a release, and refuses to bump without notes. A
-beta shows what `## Unreleased` holds at the time.
+into `## <version>` for a release, and refuses to bump without notes.
 
 ## Unreleased
+
+- Deckle is rewritten in Go on MyGo, which draws its window itself on the
+  GPU. Typing in a long note takes about half the time it did, and Deckle
+  now runs on macOS 13 or later, on Intel Macs too, and on Linux and
+  Windows.
+- The first launch takes the settings, workspaces, tabs and places of the
+  version before it, and from then on Deckle updates itself with smaller
+  updates that download only what changed.
+- Settings are kept in a `settings.json` file rather than the user
+  defaults.
+- Spell checking, the Edit menu's Spelling, Substitutions and
+  Transformations submenus, and beta updates are gone for now.
 
 ## 0.1.1
 

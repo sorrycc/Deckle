@@ -1,83 +1,49 @@
 #!/usr/bin/env bash
-# Sets a new version in Cargo.toml and Cargo.lock, commits it as v<version>
-# with a tag of the same name, and after asking pushes main and the tag, which
-# makes the Release workflow build and publish it.
-# Usage: scripts/bump.sh <version | keyword>
+# Sets a new version in mygo.json, commits it as v<version> with a tag of the
+# same name, and after asking pushes main and the tag, which makes the
+# Release workflow build and publish it.
+# Usage: scripts/bump.sh <version | patch | minor | major>
 #
-# The argument is a version, such as 0.2.0 or 0.2.0-beta.1, or a keyword that
-# works it out from the current one, as npm version does:
-#   patch, minor, major        the next release, or the current one without its
-#                              pre-release part when that is the same thing
-#                              (0.1.0-beta.1 patch -> 0.1.0, 0.1.0 patch -> 0.1.1)
-#   beta                       the next beta (0.1.0-beta.1 -> 0.1.0-beta.2,
-#                              0.1.0 -> 0.1.1-beta.1)
-#   prepatch, preminor, premajor   the first beta of the next patch, minor or major
-#
-# A release turns the "## Unreleased" section of CHANGELOG.md into
-# "## <version>" in the same commit, with an empty "## Unreleased" above it,
-# unless a "## <version>" section is there already: the update window and the
-# GitHub release show it, and the release fails without it. A beta leaves
-# CHANGELOG.md alone and shows what "## Unreleased" holds.
+# The "## Unreleased" section of CHANGELOG.md becomes "## <version>" in the
+# same commit, unless a "## <version>" section is there already: the update
+# window shows it, it is the notes of the GitHub release, and the release
+# fails without it. Pre-release versions such as 1.2.0-beta.1 are refused,
+# as MyGo's updates have no beta channel.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ $# -ne 1 ]; then
-    sed -n '2,21s/^# \{0,1\}//p' "$0" >&2
+    sed -n '2,11s/^# \{0,1\}//p' "$0" >&2
     exit 1
 fi
 
-CURRENT="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' "$ROOT/Cargo.toml")"
-# Prints the new version, or fails when the argument isn't a version or keyword
-# or doesn't come after the current version.
-VERSION="$(/usr/bin/python3 - "$CURRENT" "$1" <<'EOF'
+cd "$ROOT"
+CURRENT="$(/usr/bin/python3 -c 'import json; print(json.load(open("mygo.json"))["version"])')"
+# Prints the new version, or fails when the argument isn't a version or
+# keyword or doesn't come after the current version.
+VERSION="$(/usr/bin/python3 - "$CURRENT" "$1" <<'PY'
 import re, sys
 
-SEMVER = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?")
-
 def parse(v):
-    m = SEMVER.fullmatch(v)
+    m = re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", v)
     if not m:
-        sys.exit(f"{v} isn't a version such as 1.2.0 or 1.2.0-beta.1.")
-    return int(m[1]), int(m[2]), int(m[3]), m[4]
+        sys.exit(f"{v} isn't a version such as 1.2.0.")
+    return tuple(int(x) for x in m.groups())
 
-def key(v):
-    # Semver precedence: a pre-release comes before its release, numeric
-    # identifiers compare as numbers and before alphanumeric ones.
-    major, minor, patch, pre = parse(v)
-    ids = [(0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")] if pre else []
-    return (major, minor, patch, pre is None, ids)
-
-current, arg = sys.argv[1], sys.argv[2]
-major, minor, patch, pre = parse(current)
-if arg == "patch":
-    new = (major, minor, patch if pre else patch + 1, None)
-elif arg == "minor":
-    new = (major, minor, 0, None) if pre and patch == 0 else (major, minor + 1, 0, None)
-elif arg == "major":
-    new = (major, 0, 0, None) if pre and minor == patch == 0 else (major + 1, 0, 0, None)
-elif arg == "beta":
-    m = re.fullmatch(r"beta\.(\d+)", pre or "")
-    if m:
-        new = (major, minor, patch, f"beta.{int(m[1]) + 1}")
-    else:
-        new = (major, minor, patch if pre else patch + 1, "beta.1")
-elif arg == "prepatch":
-    new = (major, minor, patch + 1, "beta.1")
-elif arg == "preminor":
-    new = (major, minor + 1, 0, "beta.1")
-elif arg == "premajor":
-    new = (major + 1, 0, 0, "beta.1")
-else:
-    new = parse(arg)
-version = "%d.%d.%d" % new[:3] + (f"-{new[3]}" if new[3] else "")
-if key(version) <= key(current):
-    sys.exit(f"{version} doesn't come after the current version {current}.")
-print(version)
-EOF
+current, arg = parse(sys.argv[1]), sys.argv[2]
+major, minor, patch = current
+new = {
+    "patch": (major, minor, patch + 1),
+    "minor": (major, minor + 1, 0),
+    "major": (major + 1, 0, 0),
+}.get(arg) or parse(arg)
+if new <= current:
+    sys.exit("%d.%d.%d doesn't come after the current version %s." % (*new, sys.argv[1]))
+print("%d.%d.%d" % new)
+PY
 )"
 TAG="v$VERSION"
 
-cd "$ROOT"
 if [ "$(git symbolic-ref --short HEAD 2>/dev/null)" != main ]; then
     echo "Releases are made from main. Switch to it first." >&2
     exit 1
@@ -100,54 +66,58 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     echo "Release $TAG exists already." >&2
     exit 1
 fi
-ADD_SECTION=
-if [[ "$VERSION" != *-* ]] && ! grep -qxF "## $VERSION" CHANGELOG.md; then
-    if ! /usr/bin/python3 - <<'EOF'
+if grep -q "^## $VERSION\$" CHANGELOG.md; then
+    RENAME_UNRELEASED=
+elif /usr/bin/python3 - <<'PY'
 import re, sys
 text = open("CHANGELOG.md").read()
 m = re.search(r"^## Unreleased\n(.*?)(?=^## |\Z)", text, re.M | re.S)
 sys.exit(0 if m and m.group(1).strip() else 1)
-EOF
-    then
-        echo "CHANGELOG.md has no \"## $VERSION\" section, nor an \"## Unreleased\" one with notes. Add one and commit it first." >&2
-        exit 1
-    fi
-    ADD_SECTION=1
+PY
+then
+    RENAME_UNRELEASED=1
+else
+    echo "CHANGELOG.md has no \"## $VERSION\" section, nor an \"## Unreleased\" one with notes. Add one and commit it first." >&2
+    exit 1
 fi
 
 echo "==> $CURRENT -> $VERSION"
-sed -i '' "/^\[workspace.package\]/,/^\[/s/^version = \".*\"$/version = \"$VERSION\"/" Cargo.toml
-# Updates only the workspace's own crates in the lock file.
-cargo update --quiet --workspace
-FILES=(Cargo.lock Cargo.toml)
-if [ -n "$ADD_SECTION" ]; then
-    # The notes under "## Unreleased" become the version's, and a new empty
-    # "## Unreleased" waits above them for the next release's.
-    /usr/bin/python3 - "$VERSION" <<'EOF'
+/usr/bin/python3 - "$VERSION" <<'PY'
+import json, sys
+with open("mygo.json") as f:
+    config = json.load(f)
+config["version"] = sys.argv[1]
+with open("mygo.json", "w") as f:
+    json.dump(config, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PY
+FILES=mygo.json
+if [ -n "$RENAME_UNRELEASED" ]; then
+    /usr/bin/python3 - "$VERSION" <<'PY'
 import re, sys
 with open("CHANGELOG.md") as f:
     text = f.read()
-text = re.sub(r"^## Unreleased\n", f"## Unreleased\n\n## {sys.argv[1]}\n", text, count=1, flags=re.M)
+text = re.sub(r"^## Unreleased$", "## " + sys.argv[1], text, count=1, flags=re.M)
 with open("CHANGELOG.md", "w") as f:
     f.write(text)
-EOF
-    FILES=(CHANGELOG.md "${FILES[@]}")
+PY
+    FILES="CHANGELOG.md mygo.json"
 fi
-# Cargo.lock may already hold the new version when it fell behind Cargo.toml.
-CHANGED="$(git diff --name-only)"
-if { [ "$CHANGED" != "$(printf '%s\n' "${FILES[@]}" | grep -vx Cargo.lock)" ] \
-        && [ "$CHANGED" != "$(printf '%s\n' "${FILES[@]}")" ]; } \
-    || git diff -U0 Cargo.lock | grep '^[-+][^-+]' | grep -qv '^[-+]version = ' \
-    || { [ -n "$ADD_SECTION" ] \
-        && [ "$(git diff -U0 CHANGELOG.md | grep '^[-+]' | grep -v '^\(---\|+++\) ' | sort)" != "$(printf '+\n+## %s' "$VERSION")" ]; }; then
-    echo "Expected only the versions in ${FILES[*]} to change:" >&2
-    git diff --stat >&2
-    echo "Undo with: git checkout -- ." >&2
+if [ "$(git diff --name-only | tr '\n' ' ')" != "$FILES " ] \
+    || [ "$(git diff -U0 mygo.json | grep -c '^[-+] ')" != 2 ] \
+    || { [ -n "$RENAME_UNRELEASED" ] && [ "$(git diff -U0 CHANGELOG.md | grep -c '^[-+]#')" != 2 ]; }; then
+    echo "Expected only the version in $FILES to change:" >&2
+    git diff >&2
+    echo "Undo with: git checkout -- $FILES" >&2
     exit 1
 fi
-git commit --quiet -m "$TAG" "${FILES[@]}"
+git commit --quiet -m "$TAG" $FILES
 git tag "$TAG"
 git --no-pager log -1 --stat --format='%h %s' "$TAG"
+echo
+echo "==> notes of the release, from CHANGELOG.md:"
+scripts/release-notes.sh "$VERSION"
+echo
 
 read -r -p "Push main and $TAG to origin, which publishes the release? [y/N] " answer || echo
 if [[ "$answer" != [yY]* ]]; then

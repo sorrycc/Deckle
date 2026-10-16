@@ -1,20 +1,16 @@
 # Performance
 
-Measured on the development machine with a release build.
+Measured on an Apple silicon Mac with `go test`.
 
 | Scenario | Result |
 |---|---|
-| Typing in the middle of a 300 KB note | 1.4 ms median, 6 ms worst per keystroke, including layout and drawing |
-| Typing inside a code block of 4,000 lines | 3 ms median, 8 ms worst per keystroke: only the line typed in is styled again |
-| Window shown after launch | About 360 ms warm. Over a second on the first launch after a build, while macOS verifies the new binary |
-| 50,000-note workspace | File list ready in 0.4 s, full index in 2.1 s, both on background threads |
-| Window shown with a 20,000-note workspace, 6,000 of them in one folder | About 390 ms |
+| Typing in the middle of a 300 KB note | 0.74 ms median, 0.93 ms p95 per keystroke, including layout and drawing the frame (`TestTypingSpeed`) |
+| Parsing a 777 KB note | 19 ms to open; 0.8 ms per edit (`TestLargeDocumentTiming`) |
+| Workspace index | file names first, then the notes read on up to 8 goroutines |
 
 ## Measuring
 
 ```sh
-build/Deckle.app/Contents/MacOS/Deckle -timing YES      # launch and indexing times
-build/Deckle.app/Contents/MacOS/Deckle -benchmark 300   # per-keystroke times for 300 characters
+go test -run 'TypingSpeed|LargeDocumentTiming' -v ./internal/...
+DECKLE_SNAPSHOT=shot.png go run ./cmd/deckle ~/Notes   # a picture of the window once it settles
 ```
-
-See [Launch arguments](usage.md#launch-arguments) for the other options, including `-scrollBenchmark`.

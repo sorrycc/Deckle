@@ -8,7 +8,7 @@ Selecting a folder in the tree lists its notes, including those in folders under
 
 Image files open in a tab of their own, fitted to the pane, and pinch or ⌘-scroll zooms them. Other text files open with their code highlighted.
 
-Right-click in the tree to create notes and folders, rename, star, reveal in Finder or move to the Trash. Drag files onto a folder to move them; files dragged in from Finder are copied. Notes can be dragged out of the list too, onto a folder, into a note as a link, or to another app. ⌘⌫ moves the selected note to the Trash, and Edit > Undo brings it back.
+Right-click in the tree to create notes and folders, rename, star, reveal in Finder or move to the Trash. Drag files onto a folder to move them; files dragged in from Finder are copied. Notes can be dragged out of the list too, onto a folder, into a note as a link, or to another app. ⌘⌫ moves the note shown to the Trash while the editor doesn't have the keyboard.
 
 The arrow keys move through the tree and the list without taking the keyboard away from them; Return hands it to the editor, and Go > Note List (⌥⌘L) and Go > Editor (⌥⌘E) move it either way. Tabs have a menu on right-click, with Close Other Tabs, Close Tabs to the Right, Reveal in Finder, Copy Path and Open in Default App, and ⇧⌘T brings back the tab closed last.
 
@@ -38,7 +38,7 @@ Markdown's syntax shows only around the selection: `-` becomes a bullet, `[ ]` a
 - `/` at the start of a line opens a menu of blocks to insert.
 - `[[` completes the names of notes.
 - ⌘-click follows a link, a wikilink or a footnote. Hovering over a link shows where it goes, and with ⌘ held the pointer becomes a hand and the link underlines. A wikilink to a missing note creates it beside the current note.
-- Edit > Paste and Match Style pastes plain text, and the Edit menu's Spelling, Substitutions, Transformations and Speech submenus are the system's own.
+- Edit > Paste and Match Style pastes plain text.
 - Hovering over a code block shows a Copy button at its corner.
 - A long note scrolls past its end, so its last lines can be read mid-screen. A click in that room puts the insertion point at the end.
 - Pasting or dropping an image saves it in an `assets` folder beside the note and links it.
@@ -76,27 +76,16 @@ Each note has its own undo history. With nothing left to undo in the note, ⌘Z 
 
 ## Settings
 
-Settings (⌘,) holds the theme, the editor font and size, whether syntax hides, spell checking, the line width and the line height. ⌘+ and ⌘- change the font size. A theme colors the whole window, the panels, the diagrams and the selection, not only the page. Settings are stored in the `dev.sorrycc.deckle` user defaults.
+Settings (⌘,) holds the theme, the editor font and size, whether syntax hides, the line width and the line height. ⌘+ and ⌘- change the font size. A theme colors the whole window, the panels, the diagrams and the selection, not only the page. Settings are stored in `settings.json` in Deckle's folder of Application Support (or the system's equivalent); the first launch after Deckle 0.1 takes that version's settings, workspaces and tabs.
 
-## Launch arguments
+## Environment variables
 
 For trying the app from a script:
 
-| Argument | Effect |
+| Variable | Effect |
 |---|---|
-| `-workspace <folder>` | Opens this folder alone, without remembering it among the workspaces to reopen |
-| `-open <file>` | Opens this file in a tab |
-| `-select <loc,len>` | Selects this range of the open file, in UTF-16 units |
-| `-scroll <fraction>` | Scrolls this far down the open file, from 0 to 1 |
-| `-type <text>` | Types this text at the selection; `\n` is a line break |
-| `-run <command>` | Runs the menu command with this title, such as `Find…` or `Toggle Done`, after the typing |
-| `-hover <index>` | Moves the pointer over this character; `-command YES` holds ⌘ |
-| `-palette files\|search\|commands\|headings\|backlinks` | Opens a panel; `-query <text>` fills it in |
-| `-welcome YES` | Opens the Welcome window, pictured as a panel |
-| `-settings YES` | Opens the Settings window, which a snapshot pictures as a panel; `-settingsTab 1` picks a tab |
-| `-exportPDF <path>` | Writes the open note as a PDF there |
-| `-snapshot <png>` | Writes a picture of the window, and of any panel as `<name>-panel.png`, then quits |
-| `-timing YES` | Prints how long launching and indexing took |
-| `-benchmark <n>` | Types n characters into the open file, prints the time each took, and quits |
-| `-scrollBenchmark <n>` | Pages n times down the open file, prints the time each page took to draw, and quits |
-| `-theme <id>` | Uses a theme for this run: `system`, `paper`, `github-light`, `solarized-light`, `one-dark`, `nord`, `tokyo-night`, `rose-pine`, `dracula`, `gruvbox-dark` |
+| `DECKLE_DATA_DIR` | Keeps the settings in this folder |
+| `DECKLE_WORKSPACE` | Opens this folder as a workspace |
+| `DECKLE_SNAPSHOT` | Writes a picture of the front window there once it settles, then quits |
+| `DECKLE_SNAPSHOT_RUN` | With `DECKLE_SNAPSHOT`, the commands to run first, such as `quickOpen` or `settings` |
+| `DECKLE_EXPORT_PDF` | With `DECKLE_SNAPSHOT`, writes the open note as a PDF there first |

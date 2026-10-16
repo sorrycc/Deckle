@@ -1,0 +1,23 @@
+{
+  "name": "Deckle",
+  "identifier": "dev.sorrycc.deckle",
+  "version": "0.1.1",
+  "copyright": "© 2026 sorrycc",
+  "main": "./cmd/deckle",
+  "out": "build",
+  "fileAssociations": [
+    { "ext": ["md", "markdown", "mdown", "mkd"], "name": "Markdown Document", "mimeType": "text/markdown" }
+  ],
+  "macos": {
+    "minimumSystemVersion": "13.0",
+    "infoPlist": { "ATSApplicationFontsPath": "Fonts" }
+  },
+  "linux": {
+    "comment": "A fast, native Markdown editor",
+    "categories": ["Office", "TextEditor"]
+  },
+  "updates": {
+    "publicKey": "jNChoxn4qVrZ8yftLl8sYCKAebbMTVN1wd4c4WDG7oI=",
+    "github": "sorrycc/Deckle"
+  }
+}

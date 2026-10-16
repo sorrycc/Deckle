@@ -4,7 +4,7 @@
 Adds a release to the Sparkle appcast, newest first, creating the file if it
 doesn't exist. <notes.md> holds the release's notes from CHANGELOG.md, which
 the update window shows; an empty file leaves them out. Run by
-scripts/release.sh."""
+scripts/sparkle-bridge.sh."""
 import html, os, re, sys
 import xml.etree.ElementTree as ET
 from email.utils import formatdate
@@ -12,7 +12,7 @@ from email.utils import formatdate
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 ET.register_namespace("sparkle", SPARKLE)
 RELEASES = "https://github.com/sorrycc/Deckle/releases"
-MINIMUM_SYSTEM = "15.0"   # LSMinimumSystemVersion in scripts/bundle.sh
+MINIMUM_SYSTEM = "13.0"   # macos.minimumSystemVersion in mygo.json
 
 def sp(name): return f"{{{SPARKLE}}}{name}"
 
