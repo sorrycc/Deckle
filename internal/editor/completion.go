@@ -237,7 +237,7 @@ func (e *Editor) overlays(c *ui.Context) {
 				for i, it := range cp.items {
 					row := ui.Row(c.Key(it.title+it.detail)).Padding(6, 10).Radius(6).Gap(8).AlignItems(ui.Center).Height(30)
 					if i == cp.selected {
-						row.Background(t.Selection)
+						row.Background(t.Accent.Alpha(0.14))
 					}
 					if row.Clicked() {
 						cp.accept(e, i)

@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +126,36 @@ func TestTitlesSortNaturally(t *testing.T) {
 		got := NaturalCompare(c.a, c.b)
 		if (got < 0) != (c.want < 0) || (got == 0) != (c.want == 0) {
 			t.Errorf("%q vs %q: %d", c.a, c.b, got)
+		}
+	}
+}
+
+func TestSearchListsALineOnce(t *testing.T) {
+	text := "the train and the bay\n> [!tip] Mind the steps\n[^1]: The footnote.\n"
+	f, ok := searchFile(text, "the", false, "/n.md", "N")
+	if !ok || f.Count != 4 {
+		t.Fatalf("count %d", f.Count)
+	}
+	var got []string
+	for _, m := range f.Matches {
+		got = append(got, m.Text)
+	}
+	want := []string{"the train and the bay", "Mind the steps", "The footnote."}
+	if !slices.Equal(got, want) {
+		t.Errorf("lines %q, want %q", got, want)
+	}
+}
+
+func TestTitleIsAHeadingBeforeTheText(t *testing.T) {
+	for text, want := range map[string]string{
+		"# Trip\n\nText.\n":                  "Trip",
+		"## Trip\nText.\n":                   "Trip",
+		"---\ntitle: Front\n---\n# Trip\n":   "Front",
+		"Text first.\n\n### A part\n":        "Note name",
+		"![cover](a.png)\n\n# After image\n": "After image",
+	} {
+		if got := extract(text, "/w/Note name.md").Title; got != want {
+			t.Errorf("%q: title %q, want %q", text, got, want)
 		}
 	}
 }

@@ -203,6 +203,8 @@ func searchFile(text, needle string, sensitive bool, path, title string) (Search
 	nb := []byte(needle)
 	f := SearchFile{Path: path, Title: title}
 	lineStart, lineNumber, units, counted := 0, 1, 0, 0
+	// A line is listed once, at its first match, however many it has.
+	listedTo := -1
 	for at := 0; ; {
 		i := bytes.Index(hay[at:], nb)
 		if i < 0 {
@@ -211,7 +213,7 @@ func searchFile(text, needle string, sensitive bool, path, title string) (Search
 		m := at + i
 		at = m + max(len(nb), 1)
 		f.Count++
-		if len(f.Matches) >= 5 || !utf8.RuneStart(text[m]) {
+		if len(f.Matches) >= 5 || !utf8.RuneStart(text[m]) || m <= listedTo {
 			continue
 		}
 		for k, r := range text[counted:m] {
@@ -226,6 +228,7 @@ func searchFile(text, needle string, sensitive bool, path, title string) (Search
 		if j := strings.IndexByte(text[m:], '\n'); j >= 0 {
 			lineEnd = m + j
 		}
+		listedTo = lineEnd
 		shown, column := plainPreview(text[lineStart:lineEnd], m-lineStart, len(nb))
 		end := min(m+len(nb), len(text))
 		f.Matches = append(f.Matches, SearchMatch{Line: lineNumber, Text: shown, Column: column, Length: min(len(nb), len(shown)-column), Offset: units, Units: markdown.UnitsOf(text[m:end])})

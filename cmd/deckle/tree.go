@@ -25,8 +25,31 @@ type tree struct {
 	renaming    string
 	renameText  string
 	focusRename bool
-	scroll      ui.ScrollState
+	// rows are the rows shown, flattened from the folders open, for a
+	// list that builds only those in view.
+	rows []treeRow
+	list ui.ListState
+	// revealing is a file to scroll to once the tree shows it.
+	revealing string
 }
+
+// treeRow is a row of the tree as it shows.
+type treeRow struct {
+	kind  treeRowKind
+	path  string
+	dir   bool
+	depth int
+}
+
+type treeRowKind uint8
+
+const (
+	rowEntry treeRowKind = iota
+	rowRoot
+	rowHeader
+	rowStar
+	rowGap
+)
 
 type treeEntry struct {
 	path string
@@ -35,6 +58,19 @@ type treeEntry struct {
 
 func newTree(w *window) *tree {
 	t := &tree{w: w, expanded: map[string]bool{}, children: map[string][]treeEntry{}}
+	t.list.Key = func(i int) any {
+		if i >= len(t.rows) {
+			return i
+		}
+		r := t.rows[i]
+		switch r.kind {
+		case rowEntry:
+			return r.path
+		case rowStar:
+			return "star:" + r.path
+		}
+		return r.kind
+	}
 	for _, p := range w.state.Expanded {
 		t.expanded[p] = true
 	}
@@ -97,6 +133,16 @@ func (t *tree) folderChanged(dir string) {
 
 func (t *tree) reloadAll() { clear(t.children) }
 
+// reveal opens the folders that hold path, so the tree shows the note
+// the editor does.
+func (t *tree) reveal(path string) {
+	t.revealing = path
+	root := t.w.root
+	for dir := filepath.Dir(path); len(dir) > len(root) && strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {
+		t.expanded[dir] = true
+	}
+}
+
 func (t *tree) view(c *ui.Context, th theme.Theme) {
 	w := t.w
 	bar := c.TitleBar()
@@ -108,41 +154,68 @@ func (t *tree) view(c *ui.Context, th theme.Theme) {
 					w.state.SidebarHidden = true
 				}
 			})
-			ui.Scroll(c.Key("tree")).Grow(1).Padding(4, 6).Children(func() {
-				ui.Column(c).Gap(1).Children(func() {
-					t.row(c, th, w.root, true, 0, true)
-					if len(w.state.Starred) > 0 {
-						ui.Text(c, "Starred").FontSize(11).Bold().TextColor(th.Secondary).Padding(10, 10, 4, 10)
-						for _, p := range w.state.Starred {
-							t.row(c, th, p, false, 0, false)
-						}
-						ui.Box(c).Height(8)
-					}
-					for _, e := range t.entries(w.root) {
-						t.node(c, th, e, 0)
-					}
-				})
-			})
+			t.flatten()
+			list := ui.List(c.Key("tree"), &t.list, len(t.rows), func(i int) {
+				r := t.rows[i]
+				switch r.kind {
+				case rowRoot:
+					t.row(c, th, w.root, true, 0, true, false)
+				case rowHeader:
+					ui.Text(c, "Starred").FontSize(11).Bold().TextColor(th.Secondary).Padding(10, 10, 4, 10)
+				case rowGap:
+					ui.Box(c).Height(8)
+				default:
+					t.row(c, th, r.path, r.dir, r.depth, false, r.kind == rowStar)
+				}
+			}).Grow(1).Gap(1).Padding(4, 6)
+			// A click on no row goes back to every note.
+			if list.Clicked() {
+				w.list.show("")
+			}
 			t.switcher(c, th)
 		})
 	})
 }
 
-func (t *tree) node(c *ui.Context, th theme.Theme, e treeEntry, depth int) {
-	t.row(c, th, e.path, e.dir, depth, false)
-	if e.dir && t.expanded[e.path] {
-		for _, ch := range t.entries(e.path) {
-			t.node(c, th, ch, depth+1)
+// flatten lists the rows the tree shows: the workspace, the starred
+// files, and the folders and files, those of each open folder under it.
+func (t *tree) flatten() {
+	w := t.w
+	t.rows = append(t.rows[:0], treeRow{kind: rowRoot})
+	if len(w.state.Starred) > 0 {
+		t.rows = append(t.rows, treeRow{kind: rowHeader})
+		for _, p := range w.state.Starred {
+			t.rows = append(t.rows, treeRow{kind: rowStar, path: p})
 		}
+		t.rows = append(t.rows, treeRow{kind: rowGap})
+	}
+	var walk func(dir string, depth int)
+	walk = func(dir string, depth int) {
+		for _, e := range t.entries(dir) {
+			t.rows = append(t.rows, treeRow{path: e.path, dir: e.dir, depth: depth})
+			if e.dir && t.expanded[e.path] {
+				walk(e.path, depth+1)
+			}
+		}
+	}
+	walk(w.root, 0)
+	if t.revealing != "" {
+		for i, r := range t.rows {
+			if r.kind == rowEntry && r.path == t.revealing {
+				t.list.ScrollIntoView(i)
+				break
+			}
+		}
+		t.revealing = ""
 	}
 }
 
 // row is a row of the tree: a folder that lists its notes when chosen, or
 // a file that opens.
-func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth int, isRoot bool) {
+func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth int, isRoot, starred bool) {
 	w := t.w
 	key := path
-	if !isRoot && slices.Contains(w.state.Starred, path) && depth == 0 && !dir && filepath.Dir(path) != w.root {
+	if starred {
 		key = "star:" + path
 	}
 	selected := false
@@ -152,21 +225,26 @@ func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth i
 		selected = cur.path == path
 	}
 	r := ui.Row(c.Key(key)).Height(28).Padding(0, 8, 0, 6+float32(depth)*16).Gap(6).Radius(7).AlignItems(ui.Center).Cursor(ui.CursorDefault)
-	if selected {
+	// The note open is marked in the accent; the folder the list shows,
+	// which is often an ancestor of it, more quietly.
+	switch {
+	case selected && !dir:
 		r.Background(th.Accent.Alpha(0.16))
-	} else if r.Hovered() {
-		r.Background(th.Text.Alpha(0.05))
+	case selected:
+		r.Background(th.Text.Alpha(0.07))
+	case r.Hovered():
+		r.Background(th.Text.Alpha(0.045))
 	}
 	name := filepath.Base(path)
 	if isRoot {
-		name = w.name
+		name = "All Notes"
 	} else if !dir && workspace.IsMarkdown(path) {
 		name = strings.TrimSuffix(name, filepath.Ext(name))
 	}
 	if r.Clicked() {
 		switch {
 		case dir:
-			if isRoot {
+			if isRoot || (selected && r.ClickModifiers()&ui.Cmd != 0) {
 				w.list.show("")
 			} else {
 				w.list.show(path)
@@ -225,7 +303,7 @@ func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth i
 			ic = iconFile
 		}
 		color := th.Secondary
-		if selected {
+		if selected || isRoot {
 			color = th.Accent
 		}
 		ui.Icon(c, ic).FontSize(15).TextColor(color)
@@ -247,7 +325,10 @@ func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth i
 			}
 			return
 		}
-		ui.Text(c, name).SingleLine().FontSize(13).Grow(1).TextColor(th.Text)
+		label := ui.Text(c, name).SingleLine().FontSize(13).Grow(1).TextColor(th.Text)
+		if selected {
+			label.FontWeight(600)
+		}
 	})
 }
 
@@ -344,8 +425,12 @@ func (t *tree) finishRename() {
 // workspace in the window.
 func (t *tree) switcher(c *ui.Context, th theme.Theme) {
 	w := t.w
-	ui.Row(c.Key("switcher-row")).Padding(8, 10).Children(func() {
-		b := ui.MenuButton(c, w.name, func(m *ui.Menu) {
+	ui.Column(c.Key("switcher-row")).Padding(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		b := ui.ButtonBase(c.Key("switcher")).Label("Workspace").Height(40).Padding(0, 8).Radius(8).FocusRing(false)
+		if b.Hovered() || b.Pressed() {
+			b.Background(th.Text.Alpha(0.06))
+		}
+		b.Menu(func(m *ui.Menu) {
 			for _, dir := range w.a.s.Recent() {
 				if dir == w.root {
 					continue
@@ -356,12 +441,32 @@ func (t *tree) switcher(c *ui.Context, th theme.Theme) {
 				}
 			}
 			m.Separator()
-			if m.Item("Open…").Chosen() {
+			if m.Item("Open Folder…").Chosen() {
 				w.a.chooseWorkspace(w.w, w)
 			}
 		})
-		b.FontSize(12.5)
+		b.Children(func() {
+			ui.Row(c).Fill().Gap(9).AlignItems(ui.Center).Children(func() {
+				// The workspace's initial on a tile of the accent.
+				ui.Box(c).Size(24, 24).Radius(6).Center().Background(th.Accent).Children(func() {
+					ui.Text(c, initial(w.name)).FontSize(12).Bold().TextColor(th.OnAccent())
+				})
+				ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+					ui.Text(c, w.name).FontSize(12.5).Bold().SingleLine().TextColor(th.Text)
+					ui.Text(c, shortenHome(filepath.Dir(w.root))).FontSize(10.5).SingleLine().TextColor(th.Secondary)
+				})
+				ui.Icon(c, iconUpDown).FontSize(13).TextColor(th.Secondary)
+			})
+		})
 	})
+}
+
+// initial is the first letter of a name, as a capital.
+func initial(name string) string {
+	for _, r := range name {
+		return strings.ToUpper(string(r))
+	}
+	return "?"
 }
 
 func shortenHome(p string) string {

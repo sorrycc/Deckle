@@ -37,7 +37,7 @@ func extract(text, path string) *Note {
 			}
 		}
 	}
-	inFence := false
+	inFence, sawText := false, false
 	var excerpt strings.Builder
 	for ; i < len(ls); i++ {
 		line := ls[i]
@@ -60,7 +60,9 @@ func extract(text, path string) *Note {
 		}
 		// Headings and images are not part of the excerpt.
 		if h, ok := atxHeading(trimmed); ok {
-			if n.Title == "" {
+			// A heading names the note when it comes before its text; one
+			// further down names a part of it, and the file names the note.
+			if n.Title == "" && !sawText {
 				n.Title = plain(h)
 			}
 			continue
@@ -68,6 +70,7 @@ func extract(text, path string) *Note {
 		if strings.HasPrefix(trimmed, "![") {
 			continue
 		}
+		sawText = true
 		if excerpt.Len() < 320 {
 			// A table's row reads as its cells; the row of dashes under its
 			// header says nothing.
@@ -234,6 +237,16 @@ func stripBlockPrefix(line string) string {
 			afterMarker = true
 		case was && len(t) >= 3 && t[0] == '[' && (t[1] == ' ' || t[1] == 'x' || t[1] == 'X') && t[2] == ']' && blank(3):
 			line = t[3:]
+		case strings.HasPrefix(t, "[^") && strings.Index(t, "]:") > 2:
+			// A footnote's label.
+			line = t[strings.Index(t, "]:")+2:]
+		case strings.HasPrefix(t, "[!") && strings.IndexByte(t, ']') > 2:
+			// A callout's tag; its title, if any, reads on.
+			end := strings.IndexByte(t, ']') + 1
+			if end < len(t) && (t[end] == '-' || t[end] == '+') {
+				end++
+			}
+			line = t[end:]
 		default:
 			return t
 		}

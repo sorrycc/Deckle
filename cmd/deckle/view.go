@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"unicode"
 
 	"deckle/internal/editor"
@@ -26,6 +27,22 @@ func currentTheme(c *ui.Context, id string) theme.Theme {
 	return theme.Resolve(id, t.Dark, t.Accent)
 }
 
+// useTheme gives the controls of a view the colors of th: buttons, check
+// boxes, inputs and the focus ring in its accent, on its page.
+func useTheme(c *ui.Context, th theme.Theme) {
+	t := *c.Theme()
+	t.Accent = th.Accent
+	t.AccentHover = th.Accent.Mix(th.Text, 0.12)
+	t.AccentPressed = th.Accent.Mix(th.Text, 0.24)
+	t.AccentText = th.OnAccent()
+	t.Focus = th.Accent.Alpha(0.5)
+	t.Selection = th.Selection
+	t.Background = th.Background
+	t.Text = th.Text
+	t.TextMuted = th.Secondary
+	c.SetTheme(&t)
+}
+
 // lookOf is how editors show text, from the settings.
 func (a *deckle) lookOf(th theme.Theme) editor.Look {
 	p := a.s.Prefs()
@@ -44,6 +61,7 @@ func (w *window) view(c *ui.Context) {
 	th := currentTheme(c, w.a.s.Prefs().Theme)
 	w.theme = th
 	w.look = w.a.lookOf(th)
+	useTheme(c, th)
 	w.shortcuts(c)
 	root := ui.Box(c).Fill().Background(th.Background).TextColor(th.Text)
 	root.Children(func() {
@@ -75,7 +93,9 @@ func titleBarHeight() float32 { return 52 }
 func (w *window) pane(c *ui.Context, th theme.Theme) {
 	ui.Column(c.Key("pane")).Fill().Background(th.Background).Children(func() {
 		w.tabBar(c, th)
-		ui.Box(c.Key("content")).Grow(1).Children(func() {
+		// Basis 0 and no minimum, so a note longer than the pane leaves the
+		// status bar its room instead of running under it.
+		ui.Box(c.Key("content")).Grow(1).Basis(0).MinHeight(0).Clip().Children(func() {
 			w.content(c, th)
 		})
 		w.statusBar(c, th)
@@ -160,6 +180,10 @@ func (w *window) tabBar(c *ui.Context, th theme.Theme) {
 					}
 				})
 				el.Children(func() {
+					// A hairline parts two tabs neither of which is shown.
+					if i > 0 && i != w.sel && i-1 != w.sel {
+						ui.Box(c).Absolute().Left(-1.5).Top(8).Bottom(8).Width(1).Background(th.Border)
+					}
 					color := th.Secondary
 					if i == w.sel {
 						color = th.Text
@@ -229,17 +253,75 @@ func (w *window) content(c *ui.Context, th theme.Theme) {
 }
 
 func (w *window) emptyTab(c *ui.Context, th theme.Theme) {
-	ui.Column(c).Fill().Center().Gap(10).Children(func() {
-		ui.Text(c, "No Note Selected").FontSize(15).Bold().TextColor(th.Secondary)
-		ui.Row(c).Gap(8).Children(func() {
-			if ui.Button(c, "New Note").Clicked() {
-				w.newNote()
+	ui.Column(c).Fill().Center().Padding(24).Children(func() {
+		ui.Column(c).Width(300).Gap(4).Children(func() {
+			ui.Box(c).Size(52, 52).Radius(14).Center().Background(th.Accent.Alpha(0.12)).AlignSelf(ui.Center).Children(func() {
+				ui.Icon(c, iconNote).FontSize(24).TextColor(th.Accent)
+			})
+			ui.Text(c, "No Note Open").FontSize(17).Bold().TextColor(th.Text).AlignSelf(ui.Center).Margin(14, 0, 2, 0)
+			count := itoa(len(w.list.notes)) + " notes"
+			if len(w.list.notes) == 1 {
+				count = "1 note"
 			}
-			if ui.Button(c, "Quick Open").Clicked() {
-				w.palette.show(modeFiles, "")
+			ui.Text(c, w.name+" · "+count).FontSize(12.5).TextColor(th.Secondary).AlignSelf(ui.Center).Margin(0, 0, 18, 0)
+			for _, s := range []struct{ id, title, accel string }{
+				{"newNote", "New Note", "CmdOrCtrl+N"},
+				{"quickOpen", "Open a Note", "CmdOrCtrl+P"},
+				{"searchNotes", "Search Notes", "CmdOrCtrl+Shift+F"},
+				{"commands", "Commands", "CmdOrCtrl+Shift+P"},
+			} {
+				r := ui.Row(c.Key("hint-"+s.id)).Height(34).Padding(0, 10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorDefault)
+				if r.Hovered() {
+					r.Background(th.Text.Alpha(0.05))
+				}
+				if r.Clicked() {
+					id := s.id
+					w.post(func() { w.run(id) })
+				}
+				r.Children(func() {
+					ui.Text(c, s.title).FontSize(13).TextColor(th.Text).Grow(1)
+					keycaps(c, th, keysLabel(s.accel))
+				})
 			}
 		})
 	})
+}
+
+// keycaps shows a shortcut's keys, each on a cap.
+func keycaps(c *ui.Context, th theme.Theme, keys string) {
+	ui.Row(c).Gap(3).Children(func() {
+		for _, k := range splitKeys(keys) {
+			ui.Box(c).MinWidth(20).Height(20).Padding(0, 5).Radius(5).Center().
+				Background(th.Text.Alpha(0.05)).Border(1, th.Border).Children(func() {
+				ui.Text(c, k).FontSize(11).TextColor(th.Secondary)
+			})
+		}
+	})
+}
+
+// splitKeys splits a shortcut's label into its keys: "⇧⌘F" into ⇧, ⌘ and
+// F; "Ctrl+Shift+F" at its pluses.
+func splitKeys(keys string) []string {
+	if !strings.ContainsAny(keys, "⌘⌃⇧⌥") && strings.Contains(keys, "+") && len(keys) > 1 {
+		parts := strings.Split(keys, "+")
+		if parts[len(parts)-1] == "" {
+			// Ctrl++
+			parts = append(parts[:len(parts)-2], "+")
+		}
+		return parts
+	}
+	var out []string
+	rs := []rune(keys)
+	for i, r := range rs {
+		if strings.ContainsRune("⌘⌃⇧⌥", r) || i == len(rs)-1 {
+			out = append(out, string(r))
+			continue
+		}
+		// A key with a name of several letters, as Tab.
+		out = append(out, string(rs[i:]))
+		break
+	}
+	return out
 }
 
 // statusBar shows how many notes link to this one, where the caret is,
@@ -320,6 +402,11 @@ func (w *window) outline(c *ui.Context, ed *editor.Editor, th theme.Theme) {
 			shown = append(shown, h)
 		}
 	}
+	// Rows indent from the note's top level, whatever it is.
+	topLevel := 6
+	for _, h := range shown {
+		topLevel = min(topLevel, h.Level)
+	}
 	current := -1
 	caret, _ := ed.Selection()
 	for i, h := range shown {
@@ -331,11 +418,12 @@ func (w *window) outline(c *ui.Context, ed *editor.Editor, th theme.Theme) {
 	hovered := rail.Hovered()
 	rail.Children(func() {
 		if hovered {
-			ui.Column(c.Key("outline-list")).Padding(8).Gap(1).Radius(10).Background(th.Background).Border(1, th.Border).
-				Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.15)).MaxHeight(480).Width(260).Children(func() {
+			ui.Column(c.Key("outline-list")).Margin(0, 10, 0, 0).Padding(6).Gap(1).Radius(12).Background(th.Background).Border(1, th.Border).
+				Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.16)).Shadow(0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.06)).MaxHeight(480).Width(260).Children(func() {
+				ui.Text(c, "Outline").FontSize(11).FontWeight(600).TextColor(th.Secondary).Padding(4, 8, 4, 8)
 				ui.Scroll(c).Children(func() {
 					for i, h := range shown {
-						row := ui.Row(c.Key(fmt.Sprintf("h%d", i))).Padding(4, 8, 4, 8+float32(h.Level-1)*12).Radius(6).Cursor(ui.CursorDefault)
+						row := ui.Row(c.Key(fmt.Sprintf("h%d", i))).Padding(5, 8, 5, 8+float32(h.Level-topLevel)*12).Radius(6).Cursor(ui.CursorDefault)
 						if row.Hovered() {
 							row.Background(th.Text.Alpha(0.07))
 						}

@@ -242,6 +242,9 @@ func (w *window) restoreSession() {
 	}
 	w.sel = min(max(0, w.state.Selected), len(w.tabs)-1)
 	w.load(w.tab())
+	if t := w.tab(); t.path != "" {
+		w.tree.reveal(t.path)
+	}
 	w.focusEditor = true
 }
 
@@ -533,11 +536,16 @@ func (w *window) tabChanged(focus bool) {
 	if t != nil && t.path != "" {
 		title = filepath.Base(t.path) + " — " + w.name
 	}
-	w.w.SetTitle(title)
+	if w.w != nil {
+		w.w.SetTitle(title)
+	}
 	if focus {
 		w.focusEditor = true
 	}
 	w.list.reveal = true
+	if t != nil && t.path != "" {
+		w.tree.reveal(t.path)
+	}
 	w.countLater()
 	w.saveSession()
 }

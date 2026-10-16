@@ -321,3 +321,25 @@ func TestCodeHighlightsByLanguage(t *testing.T) {
 		t.Fatal("extensions")
 	}
 }
+
+func TestNumberedListItemsAfterTheFirst(t *testing.T) {
+	for src, want := range map[string][]string{
+		"1. a\n2. b\n3. c\n":      {"1.", "2.", "3."},
+		"- x\n\n1. a\n2. b\n":     {"-", "1.", "2."},
+		"1) a\n2) b\n":            {"1)", "2)"},
+		"1. a\n   1. b\n2. c\n":   {"1.", "1.", "2."},
+		"Text\n2. not a list\n":   nil,
+		"- a\n2. continues a\n":   {"-"},
+		"1. a\n\n   more\n2. b\n": {"1.", "2."},
+	} {
+		var got []string
+		for _, s := range all(NewDoc(src, "markdown")) {
+			if s.Kind == ListMarker {
+				got = append(got, textOf(src, s))
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%q: markers %q, want %q", src, got, want)
+		}
+	}
+}

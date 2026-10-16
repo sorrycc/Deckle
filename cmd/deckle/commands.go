@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"deckle/internal/settings"
@@ -115,9 +116,22 @@ func keysLabel(accel string) string {
 	mac := runtime.GOOS == "darwin"
 	r := strings.NewReplacer("CmdOrCtrl+", "⌘", "Ctrl+", "⌃", "Shift+", "⇧", "Alt+", "⌥", "Backspace", "⌫", "Enter", "↩", "Plus", "+", "Tab", "⇥")
 	if !mac {
-		r = strings.NewReplacer("CmdOrCtrl+", "Ctrl+")
+		return strings.NewReplacer("CmdOrCtrl+", "Ctrl+").Replace(accel)
 	}
-	return r.Replace(accel)
+	// The modifiers in the order macOS's menus show them: ⌃⌥⇧⌘.
+	parts := strings.Split(accel, "+")
+	key := parts[len(parts)-1]
+	if key == "" && len(parts) > 1 {
+		key = "+"
+		parts = parts[:len(parts)-1]
+	}
+	var mods string
+	for _, m := range []string{"Ctrl", "Alt", "Shift", "CmdOrCtrl"} {
+		if slices.Contains(parts[:len(parts)-1], m) {
+			mods += m + "+"
+		}
+	}
+	return r.Replace(mods + key)
 }
 
 // commandList is the commands the palette offers.

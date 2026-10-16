@@ -57,6 +57,7 @@ func (ww *welcomeWindow) close() {
 func (ww *welcomeWindow) view(c *ui.Context) {
 	a := ww.a
 	th := currentTheme(c, a.s.Prefs().Theme)
+	useTheme(c, th)
 	recent := a.s.Recent()
 	ui.Row(c).Fill().Background(th.Background).TextColor(th.Text).AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c.Key("brand")).Width(300).Padding(56, 32, 32, 32).Gap(14).AlignItems(ui.Center).DragWindow().Children(func() {
@@ -64,17 +65,26 @@ func (ww *welcomeWindow) view(c *ui.Context) {
 				ui.Image(c, appIcon).Size(112, 112)
 			}
 			ui.Text(c, "Deckle").FontSize(28).Bold()
-			ui.Text(c, "A fast, native Markdown editor.").FontSize(13).TextColor(th.Secondary)
-			ui.Box(c).Height(12)
-			if ui.PrimaryButton(c, "Open Folder…").Clicked() {
+			ui.Text(c, "A fast, native Markdown editor.").FontSize(13).TextColor(th.Secondary).Margin(-8, 0, 0, 0)
+			if v := mygo.App.Version(); v != "" {
+				ui.Box(c).Padding(2, 8).Radius(999).Background(th.Text.Alpha(0.06)).Children(func() {
+					ui.Text(c, "Version "+v).FontSize(11).TextColor(th.Secondary)
+				})
+			}
+			ui.Box(c).Height(10)
+			if ui.PrimaryButton(c, "Open Folder…").MinWidth(180).Clicked() {
 				a.chooseWorkspace(ww.w, nil)
 			}
 			ui.Text(c, "Or drop a folder here.").FontSize(11.5).TextColor(th.Secondary)
 		})
 		ui.Column(c.Key("recent")).Grow(1).Background(th.Panel).Padding(36, 14, 14, 14).Gap(2).Children(func() {
-			ui.Text(c, "Recent").FontSize(11).Bold().TextColor(th.Secondary).Padding(0, 10, 6, 10)
+			ui.Text(c, "Recent Workspaces").FontSize(11.5).Bold().TextColor(th.Secondary).Padding(0, 10, 6, 10)
 			if len(recent) == 0 {
-				ui.Text(c, "Workspaces you open show here.").FontSize(12.5).TextColor(th.Secondary).Padding(10)
+				ui.Column(c).Grow(1).Center().Gap(8).Padding(0, 0, 36, 0).Children(func() {
+					ui.Icon(c, iconFolder).FontSize(30).TextColor(th.Text.Alpha(0.25))
+					ui.Text(c, "No Recent Workspaces").FontSize(13).FontWeight(600).TextColor(th.Secondary)
+					ui.Text(c, "A workspace is a folder of notes.\nThe ones you open show here.").FontSize(12).TextAlign(ui.Center).TextColor(th.Secondary)
+				})
 			}
 			forget := ""
 			for i, dir := range recent {

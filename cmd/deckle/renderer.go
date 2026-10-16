@@ -129,6 +129,12 @@ func (r *renderer) start() {
 			return
 		}
 		r.loading = true
+		if r.w.w == nil {
+			// A window of tests, with no window of the system's to hold
+			// a web view.
+			r.fail()
+			return
+		}
 		wv, err := r.w.w.NewWebView(mygo.WebViewOptions{Transparent: true})
 		if err != nil {
 			r.fail()
