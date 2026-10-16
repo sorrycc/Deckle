@@ -128,3 +128,17 @@ func TestTitlesSortNaturally(t *testing.T) {
 		}
 	}
 }
+
+func TestTitleIsAHeadingBeforeTheText(t *testing.T) {
+	for text, want := range map[string]string{
+		"# Trip\n\nText.\n":                  "Trip",
+		"## Trip\nText.\n":                   "Trip",
+		"---\ntitle: Front\n---\n# Trip\n":   "Front",
+		"Text first.\n\n### A part\n":        "Note name",
+		"![cover](a.png)\n\n# After image\n": "After image",
+	} {
+		if got := extract(text, "/w/Note name.md").Title; got != want {
+			t.Errorf("%q: title %q, want %q", text, got, want)
+		}
+	}
+}

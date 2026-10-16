@@ -345,6 +345,13 @@ func (p *blockParser) line(ls, le int) {
 			after := p.src[mEnd:p.le]
 			emptyItem := isBlank(after)
 			interrupts := !emptyItem && (!ordered || bytes.HasPrefix(rest, []byte("1.")) || bytes.HasPrefix(rest, []byte("1)")))
+			// The paragraph of an item of this list doesn't count: the
+			// next item of the list starts after it, whatever its number.
+			for b := tip; b != nil && b != container; b = b.parent {
+				if b.kind == bItem && b.parent == container && b.ordered == ordered {
+					interrupts = true
+				}
+			}
 			if tip.kind != bPara || started || interrupts {
 				p.closeUnmatched(container)
 				item := p.add(container, bItem, at)
