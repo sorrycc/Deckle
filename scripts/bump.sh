@@ -66,6 +66,18 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     echo "Release $TAG exists already." >&2
     exit 1
 fi
+# A secret the Release workflow uses but the repository lacks fails it
+# halfway, or, for the update key, publishes a release no app updates to.
+SECRETS="$(gh secret list --json name --jq '.[].name')" \
+    || { echo "Couldn't list the repository's secrets." >&2; exit 1; }
+MISSING="$(comm -23 \
+    <(grep -o 'secrets\.[A-Z0-9_]*' .github/workflows/release.yml | sed 's/^secrets\.//' | sort -u) \
+    <(sort -u <<<"$SECRETS"))"
+if [ -n "$MISSING" ]; then
+    echo "The Release workflow needs these secrets, which aren't set: $(echo $MISSING)" >&2
+    echo "Set them with: gh secret set <name>" >&2
+    exit 1
+fi
 if grep -q "^## $VERSION\$" CHANGELOG.md; then
     RENAME_UNRELEASED=
 elif /usr/bin/python3 - <<'PY'

@@ -64,11 +64,11 @@ jobs:
       - name: Import the certificate and the notary credentials
         if: runner.os == 'macOS'
         env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           keychain="$RUNNER_TEMP/signing.keychain-db"
           password="$(openssl rand -base64 24)"
@@ -86,7 +86,7 @@ jobs:
           xcrun notarytool store-credentials notary --keychain "$keychain" \
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
           identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)"
-          test -n "$identity" || { echo "::error::no Developer ID Application identity in MACOS_CERTIFICATE_P12"; exit 1; }
+          test -n "$identity" || { echo "::error::no Developer ID Application identity in MACOS_CERTIFICATE"; exit 1; }
           jq --arg identity "$identity" --arg keychain "$keychain" --arg build "$(git rev-list --count HEAD)" \
             '.macos.signingIdentity = $identity | .macos.notarize = {keychainProfile: "notary", keychain: $keychain} | .macos.infoPlist.CFBundleVersion = $build' \
             mygo.json > "$RUNNER_TEMP/mygo.json"

@@ -1,0 +1,30 @@
+# Tests Deckle on Linux, with the Git, GTK and fonts of Ubuntu 22.04 and
+# 24.04, as pushes to main and pull requests come.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # Pango and cairo lay out and draw the text, by way of GTK.
+      - name: Install GTK and fonts
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-0 fonts-dejavu-core
+      - run: go vet ./...
+      - run: go test -short ./...
