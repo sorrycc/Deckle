@@ -4,7 +4,7 @@ The update window and the GitHub release show the section of the version
 they offer. Write notes under `## Unreleased`; `scripts/bump.sh` turns it
 into `## <version>` for a release, and refuses to bump without notes.
 
-## Unreleased
+## 0.2.0
 
 - Deckle is rewritten in Go on MyGo, which draws its window itself on the
   GPU. Typing in a long note takes about half the time it did, and Deckle
