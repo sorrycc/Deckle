@@ -259,7 +259,11 @@ func (w *window) emptyTab(c *ui.Context, th theme.Theme) {
 				ui.Icon(c, iconNote).FontSize(24).TextColor(th.Accent)
 			})
 			ui.Text(c, "No Note Open").FontSize(17).Bold().TextColor(th.Text).AlignSelf(ui.Center).Margin(14, 0, 2, 0)
-			ui.Text(c, w.name+" · "+itoa(len(w.list.notes))+" notes").FontSize(12.5).TextColor(th.Secondary).AlignSelf(ui.Center).Margin(0, 0, 18, 0)
+			count := itoa(len(w.list.notes)) + " notes"
+			if len(w.list.notes) == 1 {
+				count = "1 note"
+			}
+			ui.Text(c, w.name+" · "+count).FontSize(12.5).TextColor(th.Secondary).AlignSelf(ui.Center).Margin(0, 0, 18, 0)
 			for _, s := range []struct{ id, title, accel string }{
 				{"newNote", "New Note", "CmdOrCtrl+N"},
 				{"quickOpen", "Open a Note", "CmdOrCtrl+P"},
@@ -298,8 +302,13 @@ func keycaps(c *ui.Context, th theme.Theme, keys string) {
 // splitKeys splits a shortcut's label into its keys: "⇧⌘F" into ⇧, ⌘ and
 // F; "Ctrl+Shift+F" at its pluses.
 func splitKeys(keys string) []string {
-	if strings.Contains(keys, "+") && len(keys) > 1 {
-		return strings.Split(keys, "+")
+	if !strings.ContainsAny(keys, "⌘⌃⇧⌥") && strings.Contains(keys, "+") && len(keys) > 1 {
+		parts := strings.Split(keys, "+")
+		if parts[len(parts)-1] == "" {
+			// Ctrl++
+			parts = append(parts[:len(parts)-2], "+")
+		}
+		return parts
 	}
 	var out []string
 	rs := []rune(keys)

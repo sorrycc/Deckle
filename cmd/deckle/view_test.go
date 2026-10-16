@@ -5,6 +5,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -80,6 +82,30 @@ func TestFlatFolderFrameTime(t *testing.T) {
 	}
 	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
 	t.Logf("3,000 notes in one folder: median %v per frame", times[len(times)/2])
+}
+
+func TestShortcutKeys(t *testing.T) {
+	for label, want := range map[string][]string{
+		"⇧⌘F":          {"⇧", "⌘", "F"},
+		"⌘+":           {"⌘", "+"},
+		"⌘⌫":           {"⌘", "⌫"},
+		"↑↓":           {"↑↓"},
+		"esc":          {"esc"},
+		"Ctrl+Shift+F": {"Ctrl", "Shift", "F"},
+		"Ctrl++":       {"Ctrl", "+"},
+	} {
+		if got := splitKeys(label); !slices.Equal(got, want) {
+			t.Errorf("%q: %q, want %q", label, got, want)
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if got := keysLabel("CmdOrCtrl+Shift+N"); got != "⇧⌘N" {
+			t.Errorf("label %q", got)
+		}
+		if got := keysLabel("CmdOrCtrl+Alt+R"); got != "⌥⌘R" {
+			t.Errorf("label %q", got)
+		}
+	}
 }
 
 // TestTreeChoosesFolders checks that a folder's row lists its notes, and a

@@ -159,13 +159,13 @@ func (t *tree) view(c *ui.Context, th theme.Theme) {
 				r := t.rows[i]
 				switch r.kind {
 				case rowRoot:
-					t.row(c, th, w.root, true, 0, true)
+					t.row(c, th, w.root, true, 0, true, false)
 				case rowHeader:
 					ui.Text(c, "Starred").FontSize(11).Bold().TextColor(th.Secondary).Padding(10, 10, 4, 10)
 				case rowGap:
 					ui.Box(c).Height(8)
 				default:
-					t.row(c, th, r.path, r.dir, r.depth, false)
+					t.row(c, th, r.path, r.dir, r.depth, false, r.kind == rowStar)
 				}
 			}).Grow(1).Gap(1).Padding(4, 6)
 			// A click on no row goes back to every note.
@@ -212,10 +212,10 @@ func (t *tree) flatten() {
 
 // row is a row of the tree: a folder that lists its notes when chosen, or
 // a file that opens.
-func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth int, isRoot bool) {
+func (t *tree) row(c *ui.Context, th theme.Theme, path string, dir bool, depth int, isRoot, starred bool) {
 	w := t.w
 	key := path
-	if !isRoot && slices.Contains(w.state.Starred, path) && depth == 0 && !dir && filepath.Dir(path) != w.root {
+	if starred {
 		key = "star:" + path
 	}
 	selected := false
